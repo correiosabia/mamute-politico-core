@@ -154,3 +154,22 @@ def test_update_tier_persists_per_house_limits(client: TestClient) -> None:
 def test_update_rejects_negative_per_house(client: TestClient) -> None:
     resp = client.put("/api/admin/tiers/1", json={"qtd_termos_camara": -1})
     assert resp.status_code == 422
+
+
+def test_update_tier_persists_history_days(client: TestClient) -> None:
+    """`qtd_dias_historico_ia` é o gate do histórico da Pesquisa IA (CS-55).
+
+    O painel sempre enviou o campo, mas o schema do PUT não o declarava e o
+    Pydantic descartava a chave em silêncio: 200 OK, auditoria com before ==
+    after, e nenhum plano conseguia ligar o histórico.
+    """
+    resp = client.put("/api/admin/tiers/1", json={"qtd_dias_historico_ia": 90})
+    assert resp.status_code == 200
+    assert resp.json()["detalhes"]["qtd_dias_historico_ia"] == 90
+    again = client.get("/api/admin/tiers").json()
+    assert again[0]["detalhes"]["qtd_dias_historico_ia"] == 90
+
+
+def test_update_rejects_negative_history_days(client: TestClient) -> None:
+    resp = client.put("/api/admin/tiers/1", json={"qtd_dias_historico_ia": -1})
+    assert resp.status_code == 422

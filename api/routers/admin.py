@@ -160,6 +160,10 @@ class TierDetailsUpdate(BaseModel):
     qtd_candidatos: Optional[int] = Field(default=None, ge=0)
     qtd_consultas_ia_mes: Optional[int] = Field(default=None, ge=0)
     qtd_consultas_ia_semana: Optional[int] = Field(default=None, ge=0)
+    # Dias que o plano mostra do histórico da Pesquisa IA (CS-55). O painel
+    # sempre enviou o campo; sem ele aqui o Pydantic descartava a chave em
+    # silêncio e nenhum plano conseguia ligar o histórico.
+    qtd_dias_historico_ia: Optional[int] = Field(default=None, ge=0)
     periodicidade_email: Optional[list[str]] = None
     orgao: Optional[list[str]] = None
     # As feature flags do plano NAO entram aqui: vivem em `feature_flag_tier`,
