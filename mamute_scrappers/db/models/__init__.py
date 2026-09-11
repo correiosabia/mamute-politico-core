@@ -7,6 +7,11 @@ from .candidacy import Candidacy
 from .chatbot_usage import ChatbotUsage
 from .committee import Committee
 from .electoral_history import ElectoralHistory
+from .editorial_agenda import (
+    EditorialAgenda,
+    ParliamentarianAgenda,
+    ParliamentarianAgendaRun,
+)
 from .committee_attendance import CommitteeAttendance
 from .feature_flag import FeatureFlag, FeatureFlagTier
 from .marcacoes_config import MarcacoesConfig
@@ -35,11 +40,14 @@ __all__ = [
     "ChatbotUsage",
     "Committee",
     "CommitteeAttendance",
+    "EditorialAgenda",
     "ElectoralHistory",
     "FeatureFlag",
     "FeatureFlagTier",
     "Parliamentarian",
     "MarcacoesConfig",
+    "ParliamentarianAgenda",
+    "ParliamentarianAgendaRun",
     "ParliamentarianTag",
     "ParliamentarianSocialNetwork",
     "ParliamentaryAmendment",

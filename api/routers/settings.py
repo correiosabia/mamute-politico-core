@@ -27,6 +27,7 @@ try:
         mamutometro_usados,
     )
     from ..db.models.project import Projetos
+    from ..services.editorial_agendas import get_agendas
     from ..services.word_cloud_terms import get_terms
 except ImportError:  # execução dentro de api/
     from dependencies import get_db
@@ -43,6 +44,7 @@ except ImportError:  # execução dentro de api/
         mamutometro_usados,
     )
     from db.models.project import Projetos
+    from services.editorial_agendas import get_agendas
     from services.word_cloud_terms import get_terms
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -56,6 +58,27 @@ class WordCloudTermsOut(BaseModel):
 @router.get("/word-cloud-terms", response_model=WordCloudTermsOut)
 def read_word_cloud_terms(db: Session = Depends(get_db)) -> dict:
     return get_terms(db)
+
+
+class EditorialAgendaOut(BaseModel):
+    """Pauta do vocabulário fechado, para o filtro de Temas."""
+
+    id: int
+    name: str
+    slug: str
+    description: Optional[str] = None
+    position: int
+
+
+@router.get("/editorial-agendas", response_model=list[EditorialAgendaOut])
+def read_editorial_agendas(db: Session = Depends(get_db)) -> list[dict]:
+    """Só as pautas ativas, na ordem em que a tela lista os filtros.
+
+    Devolve `[]` — e não 500 — enquanto a tabela não existe: o deploy aplica
+    as migrations depois de subir os containers.
+    """
+
+    return get_agendas(db)
 
 
 @router.get("/feature-flags")
