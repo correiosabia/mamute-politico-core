@@ -38,7 +38,7 @@ ja registra a aversao a isso), e usar MAX(id) nao serviria: editar a
 cria id novo.
 
 Revision ID: cs72a1b2c3d4
-Revises: cs74a1b2c3d4
+Revises: cs83a1b2c3d4
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ import sqlalchemy as sa
 
 
 revision = "cs72a1b2c3d4"
-down_revision = "cs74a1b2c3d4"
+down_revision = "cs83a1b2c3d4"
 branch_labels = None
 depends_on = None
 
