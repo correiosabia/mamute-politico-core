@@ -43,6 +43,11 @@ try:
         get_config as get_marcacoes_config,
         set_config as set_marcacoes_config,
     )
+    from ..services.editorial_agendas import (
+        SlugImutavelError,
+        get_agendas as get_editorial_agendas,
+        replace_agendas as replace_editorial_agendas,
+    )
     from ..services.word_cloud_terms import (
         get_terms as get_word_cloud_terms,
         replace_terms as replace_word_cloud_terms,
@@ -89,6 +94,11 @@ except ImportError:  # execução dentro de api/
     from services.marcacoes import (
         get_config as get_marcacoes_config,
         set_config as set_marcacoes_config,
+    )
+    from services.editorial_agendas import (
+        SlugImutavelError,
+        get_agendas as get_editorial_agendas,
+        replace_agendas as replace_editorial_agendas,
     )
     from services.word_cloud_terms import (
         get_terms as get_word_cloud_terms,
@@ -509,6 +519,84 @@ def update_word_cloud_terms_route(
         admin_email=admin_email,
         action="update_word_cloud_terms",
         entity="word_cloud_terms",
+        entity_id="global",
+        before=before,
+        after=after,
+    )
+    db.commit()
+    return after
+
+
+class EditorialAgendaIn(BaseModel):
+    """Uma pauta na lista que a tela salva de uma vez.
+
+    `id` ausente = pauta nova. `id` presente com `slug` diferente do gravado é
+    recusado: as classificações já feitas apontam para o slug antigo.
+    """
+
+    id: Optional[int] = None
+    name: str
+    slug: str
+    description: Optional[str] = None
+    active: bool = True
+
+
+class EditorialAgendasUpdate(BaseModel):
+    """Vocabulário completo — a ordem do array vira a `position`."""
+
+    agendas: list[EditorialAgendaIn] = Field(default_factory=list)
+
+
+class EditorialAgendaOut(BaseModel):
+    id: int
+    name: str
+    slug: str
+    description: Optional[str] = None
+    position: int
+    active: bool
+    vocabulary_version: int
+
+
+@router.get("/settings/editorial-agendas", response_model=list[EditorialAgendaOut])
+def read_editorial_agendas_admin(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> list[dict[str, Any]]:
+    """Vocabulário completo, inclusive as pautas desativadas.
+
+    A tela precisa das inativas para poder reativar — a leitura pública em
+    `/settings/editorial-agendas` mostra só as ativas.
+    """
+
+    return get_editorial_agendas(db, incluir_inativas=True)
+
+
+@router.put("/settings/editorial-agendas", response_model=list[EditorialAgendaOut])
+def update_editorial_agendas_route(
+    payload: EditorialAgendasUpdate,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(require_ghost_admin),
+) -> list[dict[str, Any]]:
+    """Substitui o vocabulário inteiro.
+
+    Pauta omitida é desativada, nunca apagada, e mudança real sobe a
+    `vocabulary_version` — que é o gatilho da reclassificação do job.
+    """
+
+    before = get_editorial_agendas(db, incluir_inativas=True)
+    try:
+        after = replace_editorial_agendas(db, payload.agendas)
+    except SlugImutavelError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    _log_admin_action(
+        db,
+        admin_email=admin_email,
+        action="update_editorial_agendas",
+        entity="editorial_agenda",
         entity_id="global",
         before=before,
         after=after,

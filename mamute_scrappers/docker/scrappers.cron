@@ -71,6 +71,15 @@ PYTHONPATH=/app
 # Discursos da Câmara (a cada 2h, no minuto 30 para não coincidir com o Senado)
 52 */2 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh camara-speeches -- /usr/local/bin/python -m mamute_scrappers.camara_crawler.speeches_transcripts >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# Pautas editoriais dos parlamentares (semanal, domingo às 08h20 UTC) — CS-72
+# Semanal, e não diário, porque é a velocidade do fenômeno: ninguém muda de
+# pauta entre terça e quarta. Domingo de manhã pega a semana inteira de
+# discurso já coletada (os coletores rodam a cada 2h, minutos 22 e 52).
+# Só reclassifica quem mudou — quem está em dia é pulado sem chamar o modelo,
+# então o custo em token é proporcional ao movimento, não ao tamanho da Casa.
+# O run-cron-job.sh já dá lock por job; não há trava própria aqui.
+20 8 * * 0 cd /app && /app/mamute_scrappers/docker/run-cron-job.sh editorial-agendas -- /usr/local/bin/python -m mamute_scrappers.scripts.classify_editorial_agendas >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # Parlamentares da Câmara (diário às 05h30)
 30 5 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh camara-parliamentarians -- /usr/local/bin/python -m mamute_scrappers.camara_crawler.parliamentarian >> /proc/1/fd/1 2>> /proc/1/fd/2
 

@@ -15,11 +15,15 @@ from sqlalchemy.orm import Session, selectinload
 
 try:
     # Execução como pacote (api.routers.parliamentarians).
+    from ..db.models.editorial_agenda import EditorialAgenda, ParliamentarianAgenda
+    from ..services.editorial_agendas import tabelas_disponiveis
     from ..db.models.parliamentarian import Parliamentarian
     from ..db.models.social_network import ParliamentarianSocialNetwork
     from ..dependencies import get_db
 except (ImportError, ValueError):
     # Execução local dentro de api/ sem reconhecimento de pacote.
+    from db.models.editorial_agenda import EditorialAgenda, ParliamentarianAgenda
+    from services.editorial_agendas import tabelas_disponiveis
     from db.models.parliamentarian import Parliamentarian
     from db.models.social_network import ParliamentarianSocialNetwork
     from dependencies import get_db
@@ -332,6 +336,17 @@ def _serialize_parliamentarian(parliamentarian: Parliamentarian) -> "Parliamenta
     )
 
 
+class EditorialAgendaOut(BaseModel):
+    """Pauta editorial atribuída a um parlamentar (CS-72)."""
+
+    id: int
+    name: str
+    slug: str
+    rank: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ParliamentarianOut(BaseModel):
     """Representação serializada de um parlamentar."""
 
@@ -359,6 +374,7 @@ class ParliamentarianOut(BaseModel):
     biography_text: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
     photo_url: Optional[str] = None
+    agendas: List[EditorialAgendaOut] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -390,6 +406,45 @@ def _serialize_parliamentarian_detail(parliamentarian: Parliamentarian) -> Parli
         if link.profile_url or (link.social_network and link.social_network.name)
     ]
     return ParliamentarianDetailOut(**base.model_dump(), social_networks=social_networks)
+
+
+def _attach_agendas(db: Session, parlamentares: List[ParliamentarianOut]) -> None:
+
+    if not parlamentares:
+        return
+    if not tabelas_disponiveis(db):
+        return
+
+    ids = [p.id for p in parlamentares]
+    linhas = db.execute(
+        select(
+            ParliamentarianAgenda.parliamentarian_id,
+            EditorialAgenda.id,
+            EditorialAgenda.name,
+            EditorialAgenda.slug,
+            ParliamentarianAgenda.rank,
+        )
+        .join(EditorialAgenda, EditorialAgenda.id == ParliamentarianAgenda.agenda_id)
+        # Pauta desativada no admin some da API mas não é apagada: a linha de
+        # classificação continua lá, dormente, e volta se a pauta voltar.
+        .where(
+            EditorialAgenda.active.is_(True),
+            ParliamentarianAgenda.parliamentarian_id.in_(ids),
+        )
+        .order_by(
+            ParliamentarianAgenda.parliamentarian_id,
+            ParliamentarianAgenda.rank,
+        )
+    ).all()
+
+    por_parlamentar: Dict[int, List[EditorialAgendaOut]] = {}
+    for parliamentarian_id, agenda_id, name, slug, rank in linhas:
+        por_parlamentar.setdefault(parliamentarian_id, []).append(
+            EditorialAgendaOut(id=agenda_id, name=name, slug=slug, rank=rank)
+        )
+
+    for parlamentar in parlamentares:
+        parlamentar.agendas = por_parlamentar.get(parlamentar.id, [])
 
 
 def _apply_situacao_filter(stmt, situacao: str):
@@ -533,7 +588,9 @@ def list_parliamentarians(
     stmt = stmt.order_by(asc(sort_column) if sort_order == "asc" else desc(sort_column))
 
     result = db.execute(stmt)
-    return [_serialize_parliamentarian(p) for p in result.scalars().all()]
+    saida = [_serialize_parliamentarian(p) for p in result.scalars().all()]
+    _attach_agendas(db, saida)
+    return saida
 
 
 @router.get("/{parliamentarian_id}", response_model=ParliamentarianDetailOut)
@@ -556,7 +613,9 @@ def get_parliamentarian(
     if result is None:
         raise HTTPException(status_code=404, detail="Parlamentar não encontrado.")
 
-    return _serialize_parliamentarian_detail(result)
+    saida = _serialize_parliamentarian_detail(result)
+    _attach_agendas(db, [saida])
+    return saida
 
 
 __all__ = ["router"]
