@@ -36,7 +36,24 @@ A legislative committee or collegiate body stored in `committee`.
 
 ### Plenary Attendance
 
-A parliamentarian attendance record for plenary activity, stored in `plenary_attendance` when collected from a source or derived according to an ADR.
+A parliamentarian attendance record for plenary activity, stored in
+`plenary_attendance` when collected from a source or derived according to an
+ADR. Only the Chamber has rows: it publishes attendance per deliberative
+session and `camara_crawler/plenary_attendance.py` collects it.
+
+### Inferred Presence
+
+The Senate's side of the presence indicator. The Senate publishes no
+attendance per plenary session — only each senator's attendance code in each
+nominal vote — so the number is derived from `roll_call_votes`: the share of
+**session days** on which the senator appears present in at least one nominal
+vote. Aggregated by day, never by vote, so a day with ten votes does not weigh
+ten times. A day on which the senator has no record at all is a day out of
+exercise, not an absence, and stays out of the denominator; a justified
+absence (licence, mission, parliamentary activity) is an absence, the same as
+in the Chamber. Because it is not the same measurement as the Chamber's, the
+card says on the tile that the number is inferred. See
+`docs/adr/0001-dashboard-presence-metric-source.md`.
 
 ### Committee Attendance
 
