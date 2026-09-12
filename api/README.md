@@ -107,3 +107,39 @@ O nível **não tem significado no sistema**, e isso é o desenho — ver
 [`docs/adr/0002-privacidade-do-mamutometro.md`](../docs/adr/0002-privacidade-do-mamutometro.md).
 Marcação de mamutômetro não aparece em painel admin, relatório por e-mail,
 resposta do chatbot nem em qualquer agregado por político.
+
+## Presença no card de Estatísticas (CS-79)
+
+`GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve
+`attendance_last_3_months_percent` e `attendance_legislature_percent`. A
+origem do número muda com a casa, e a tela diz qual está mostrando:
+
+| Casa | Origem | O que o número conta |
+|---|---|---|
+| Câmara | `plenary_attendance` + `committee_attendance` | registros de presença coletados na fonte |
+| Senado | `roll_call_votes` | dias de sessão em que o senador aparece presente em alguma votação nominal |
+
+O Senado não publica presença por sessão de plenário — a API só traz o
+comparecimento de cada senador em cada votação nominal —, então o número dele
+é inferido. As regras da inferência (agrega por dia, licença conta como
+ausência, dia sem registro é dia fora de exercício) e a validação contra a
+legislatura 2023-2027 estão em `docs/adr/0001-dashboard-presence-metric-source.md`.
+
+Depende de `roll_call_votes.vote_date`. Sem a coluna — a janela do deploy
+antes das migrations — o indicador do Senado volta a "sem dado" em vez de
+devolver número errado.
+
+Para conferir a cobertura em produção:
+
+```sql
+SELECT count(*) FILTER (WHERE r.vote_date IS NULL) AS sem_data,
+       count(*)                                    AS votos,
+       count(DISTINCT r.vote_date)                 AS dias_de_sessao
+FROM roll_call_votes r
+JOIN parliamentarian p ON p.id = r.parliamentarian_id
+WHERE p.type ILIKE '%Senad%' AND r.vote_date >= '2023-02-01';
+```
+
+`dias_de_sessao` deve chegar perto de 121 para a legislatura inteira (valor
+apurado em 10/09/2026). Muito abaixo disso significa que
+`backfill-votes-speeches` ou `backfill-vote-dates` ainda não drenaram a fila.

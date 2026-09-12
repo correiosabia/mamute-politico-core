@@ -406,32 +406,169 @@ def _count_speeches_in_range(
     return int(db.execute(stmt).scalar_one() or 0)
 
 
+_SENADO_PRESENTE = frozenset(
+    {
+        # Votou de fato — a sigla vem ora como voto, ora como comparecimento.
+        "sim",
+        "nao",
+        "abstencao",
+        "votou",
+        "vo",
+        "vs",  # Votacao secreta: votou, o voto e que nao e publicado.
+        # Esteve na sessao sem registrar voto.
+        "p-nrv",  # Presente - nao registrou voto.
+        "p-od",  # Presente - obstrucao declarada.
+        "ob",  # Em obstrucao declarada.
+        "psf",  # Presente no Senado Federal.
+        "sf",
+        # Presidiu.
+        "pr",
+        "ps",
+    }
+)
+
+_SENADO_AUSENTE = frozenset(
+    {
+        "ncom",  # Nao compareceu.
+        "aus",  # Comunicacao de ausencia.
+        "ap",  # Atividade parlamentar.
+        "mis",  # Missao da Casa no Pais/exterior.
+        "mer",  # No Parlamento do Mercosul — fora do plenario.
+        "rep",  # Representacao em solenidade.
+        "ep",
+        "epr",  # No exercicio da Presidencia da Republica.
+        "afo",  # Afastamento do exercicio.
+        "dj",  # Afastamento por decisao judicial.
+        "ll",  # Privacao de liberdade.
+        "gr",  # Grupo de risco.
+        "lcs",
+        "leg",
+        "l1",
+        "l2",
+        "l3",
+        "l4",
+        "l5",
+        "l6",
+        "l7",
+        "la",
+        "laf",
+        "lap",
+        "lc",
+        "lg",
+        "lga",
+        "ln",
+        "lp",
+        "lpa",
+        "ls",
+        "lsp",
+        "na",  # Dispositivo nao citado: justificativa sem base legal citada.
+    }
+)
+
+
+def _senado_comparecimento(value: Optional[str]) -> Optional[bool]:
+    """True presente, False ausente, None quando o codigo nao fala de presenca.
+
+    O None e deliberado: `FAL` (falecimento) ou `NH` (nao houve votacao) nao
+    sao falta de ninguem, e um codigo novo que a API passe a emitir tambem
+    nao deve virar falta sem alguem conferir.
+    """
+    normalized = _normalize_text(value)
+    if not normalized:
+        return None
+    if normalized.startswith("presidente"):
+        return True
+    if normalized in _SENADO_PRESENTE:
+        return True
+    if normalized in _SENADO_AUSENTE:
+        return False
+    return None
+
+
+def _senate_parliamentarian_ids(db: Session, parliamentarian_ids: List[int]) -> set[int]:
+    if not parliamentarian_ids:
+        return set()
+    stmt = select(Parliamentarian.id).where(
+        Parliamentarian.id.in_(parliamentarian_ids),
+        Parliamentarian.type.ilike("%Senad%"),
+    )
+    return {int(row) for row in db.execute(stmt).scalars().all()}
+
+
+def _senate_attendance_day_scores(
+    db: Session, senate_ids: set[int], range_start: date, range_end: date
+) -> List[int]:
+
+    if not senate_ids:
+        return []
+    # A coluna chega depois dos containers no deploy; sem ela nao ha dia de
+    # sessao para agregar, e um numero errado e pior que "sem dado".
+    if not _table_has_column(db, "roll_call_votes", "vote_date"):
+        return []
+
+    stmt = select(
+        RollCallVote.parliamentarian_id,
+        RollCallVote.vote_date,
+        RollCallVote.vote,
+    ).where(
+        RollCallVote.parliamentarian_id.in_(senate_ids),
+        RollCallVote.vote_date.is_not(None),
+        RollCallVote.vote_date >= range_start,
+        RollCallVote.vote_date <= range_end,
+    )
+
+    # (senador, dia) -> esteve presente em alguma votacao daquele dia.
+    days: dict[tuple[int, date], bool] = {}
+    for parliamentarian_id, vote_date, vote in db.execute(stmt).all():
+        status_value = _senado_comparecimento(vote)
+        if status_value is None:
+            continue
+        key = (int(parliamentarian_id), vote_date)
+        days[key] = days.get(key, False) or status_value
+
+    return [1 if present else 0 for present in days.values()]
+
+
 def _calculate_attendance_avg_percent(
     db: Session, parliamentarian_ids: List[int], range_start: date, range_end: date
 ) -> Optional[int]:
-    plenary_stmt = select(
-        PlenaryAttendance.session_attendance,
-        PlenaryAttendance.daily_attendance_justification,
-    ).where(
-        PlenaryAttendance.parliamentarian_id.in_(parliamentarian_ids),
-        PlenaryAttendance.date.is_not(None),
-        PlenaryAttendance.date >= range_start,
-        PlenaryAttendance.date <= range_end,
-    )
-    committee_stmt = select(CommitteeAttendance.frequency).where(
-        CommitteeAttendance.parliamentarian_id.in_(parliamentarian_ids),
-        CommitteeAttendance.date.is_not(None),
-        CommitteeAttendance.date >= range_start,
-        CommitteeAttendance.date <= range_end,
-    )
+
+    senate_ids = _senate_parliamentarian_ids(db, parliamentarian_ids)
+    other_ids = [
+        parliamentarian_id
+        for parliamentarian_id in parliamentarian_ids
+        if parliamentarian_id not in senate_ids
+    ]
 
     presence_scores: List[int] = []
-    for session_attendance, daily_justification in db.execute(plenary_stmt).all():
-        status_value = session_attendance or daily_justification
-        presence_scores.append(1 if _is_present_status(status_value) else 0)
 
-    for (frequency,) in db.execute(committee_stmt).all():
-        presence_scores.append(1 if _is_present_status(frequency) else 0)
+    if other_ids:
+        plenary_stmt = select(
+            PlenaryAttendance.session_attendance,
+            PlenaryAttendance.daily_attendance_justification,
+        ).where(
+            PlenaryAttendance.parliamentarian_id.in_(other_ids),
+            PlenaryAttendance.date.is_not(None),
+            PlenaryAttendance.date >= range_start,
+            PlenaryAttendance.date <= range_end,
+        )
+        committee_stmt = select(CommitteeAttendance.frequency).where(
+            CommitteeAttendance.parliamentarian_id.in_(other_ids),
+            CommitteeAttendance.date.is_not(None),
+            CommitteeAttendance.date >= range_start,
+            CommitteeAttendance.date <= range_end,
+        )
+
+        for session_attendance, daily_justification in db.execute(plenary_stmt).all():
+            status_value = session_attendance or daily_justification
+            presence_scores.append(1 if _is_present_status(status_value) else 0)
+
+        for (frequency,) in db.execute(committee_stmt).all():
+            presence_scores.append(1 if _is_present_status(frequency) else 0)
+
+    presence_scores.extend(
+        _senate_attendance_day_scores(db, senate_ids, range_start, range_end)
+    )
 
     if not presence_scores:
         return None
