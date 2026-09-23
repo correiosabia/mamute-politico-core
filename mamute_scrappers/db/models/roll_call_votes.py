@@ -30,7 +30,14 @@ class RollCallVote(Base):
     # de dataHoraRegistro (Câmara) ou DataSessao (Senado). Nullable enquanto o
     # backfill_vote_dates ainda não populou os históricos.
     vote_date = Column(Date)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        # O crawler da Camara busca o voto gravado mais recente para saber de
+        # onde retomar (migration cs102a1b2c3d4).
+        index=True,
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
