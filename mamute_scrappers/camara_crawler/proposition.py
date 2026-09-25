@@ -88,6 +88,7 @@ class PropositionPayload(TypedDict, total=False):
     agency_code: Optional[int]
     proposition_type_code: Optional[str]
     author_codes: List[int]
+    themes: List[str]
 
 
 AUTO_SYNC_MISSING_AUTHORS_DEFAULT = False
@@ -105,6 +106,9 @@ PROPOSITION_MUTABLE_FIELDS = [
     "summary",
     "proposition_description",
     "details",
+    # Só entra no payload quando a consulta de temas deu certo — falha de rede
+    # não apaga tema já coletado.
+    "themes",
 ]
 
 
@@ -305,6 +309,35 @@ def _fetch_proposition_authors(proposition_id: int) -> List[int]:
                     logger.debug("Falha ao extrair ID do autor da URI: %s", uri)
     
     return author_codes
+
+
+def parse_camara_themes(data: Any) -> Optional[List[str]]:
+    """Extrai os nomes das áreas temáticas da resposta de /proposicoes/{id}/temas.
+
+    Devolve None quando a resposta não tem o formato esperado (tratado como
+    "não coletado") e [] quando a Câmara não classificou a proposição.
+    """
+    if not isinstance(data, dict):
+        return None
+    dados = data.get("dados")
+    if not isinstance(dados, list):
+        return None
+
+    themes: List[str] = []
+    for item in dados:
+        if not isinstance(item, dict):
+            continue
+        name = _coerce_text(item.get("tema"))
+        if name and name not in themes:
+            themes.append(name)
+    return themes
+
+
+def _fetch_proposition_themes(proposition_id: int) -> Optional[List[str]]:
+    """Busca as áreas temáticas oficiais de uma proposição (None se a consulta falhar)."""
+    url = f"{CAMARA_PROPOSICOES_ENDPOINT}/{proposition_id}/temas"
+    logger.debug("Buscando temas da proposição %s", proposition_id)
+    return parse_camara_themes(_request_json(url))
 
 
 def _fetch_deputado_detail(deputado_id: int) -> Optional[Dict[str, Any]]:
@@ -510,6 +543,7 @@ def _build_payload_from_data(
     basic_data: Dict[str, Any],
     detail_data: Optional[Dict[str, Any]],
     author_codes: Optional[List[int]] = None,
+    themes: Optional[List[str]] = None,
 ) -> Optional[PropositionPayload]:
     """Constrói payload interno a partir dos dados básicos e detalhados."""
 
@@ -588,6 +622,9 @@ def _build_payload_from_data(
         payload["agency_code"] = agency_code
 
         payload["author_codes"] = author_codes if author_codes is not None else []
+
+    if themes is not None:
+        payload["themes"] = themes
 
     return payload
 
@@ -862,6 +899,7 @@ def proposition(
                 # Buscar detalhes completos (sempre para novas, opcional para existentes)
                 detail_data = None
                 author_codes_list = []
+                themes = None
                 if not exists or force_full:
                     detail_data = _fetch_proposition_detail(proposition_id)
                     if detail_data and REQUEST_DELAY > 0:
@@ -872,8 +910,15 @@ def proposition(
                     if author_codes_list and REQUEST_DELAY > 0:
                         time.sleep(REQUEST_DELAY)
 
+                    # Áreas temáticas oficiais (endpoint separado)
+                    themes = _fetch_proposition_themes(proposition_id)
+                    if REQUEST_DELAY > 0:
+                        time.sleep(REQUEST_DELAY)
+
                 # Construir payload
-                payload = _build_payload_from_data(basic_data, detail_data, author_codes_list)
+                payload = _build_payload_from_data(
+                    basic_data, detail_data, author_codes_list, themes
+                )
                 if payload is None:
                     continue
 

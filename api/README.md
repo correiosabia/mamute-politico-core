@@ -108,6 +108,23 @@ O nível **não tem significado no sistema**, e isso é o desenho — ver
 Marcação de mamutômetro não aparece em painel admin, relatório por e-mail,
 resposta do chatbot nem em qualquer agregado por político.
 
+## Temas oficiais das proposições (CS-92)
+
+`PropositionOut.themes` (em `/api/propositions/`, `/api/propositions/{id}` e
+nas proposições do `dashboard-activity`) é a lista de áreas temáticas oficiais
+da Casa. Três estados, e a interface mostra cada um de um jeito:
+
+| `themes` | Significa |
+|---|---|
+| `["Saúde", "Educação"]` | temas oficiais, na ordem da fonte (não há tema principal) |
+| `[]` | coletado, a Casa não classificou (REQ, EMC, PRL...) |
+| `null` | ainda não coletado — backfill em andamento ou migration pendente |
+
+A coluna é `deferred` no model: nenhuma consulta a lê sem pedir
+(`proposition_load_options`), e quem pede só pede depois de ver que a coluna
+existe. Assim, na janela do deploy antes da migration `cs92a1b2c3d4`, as rotas
+de proposição seguem respondendo, com `themes: null`.
+
 ## Presença no card de Estatísticas (CS-79)
 
 `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve

@@ -7,8 +7,9 @@ from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import asc, desc, select
-from sqlalchemy.orm import Session
+from sqlalchemy import asc, desc, inspect as sqlalchemy_inspect, select
+from sqlalchemy.exc import NoInspectionAvailable, SQLAlchemyError
+from sqlalchemy.orm import Session, undefer
 
 try:
     # Execução como pacote (api.routers.propositions).
@@ -43,10 +44,53 @@ class PropositionOut(BaseModel):
     presentation_month: Optional[int] = None
     summary: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
+    themes: Optional[List[str]] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+_THEMES_COLUMN_READY = False
+
+
+def _themes_column_ready(db: Session) -> bool:
+    """A coluna `themes` já existe? O deploy aplica a migration cs92 depois de
+    subir a API; até lá, ler a coluna derrubaria toda consulta de proposição.
+
+    Só o "sim" fica em cache (a coluna não some depois de criada), então o
+    custo da checagem some após a primeira resposta positiva — importa porque
+    a aba de proposições do perfil faz uma requisição por proposição.
+    """
+    global _THEMES_COLUMN_READY
+    if _THEMES_COLUMN_READY:
+        return True
+    try:
+        columns = sqlalchemy_inspect(db.get_bind()).get_columns("proposition")
+    except SQLAlchemyError:
+        return False
+    _THEMES_COLUMN_READY = any(column.get("name") == "themes" for column in columns)
+    return _THEMES_COLUMN_READY
+
+
+def proposition_load_options(db: Session) -> list:
+    """Opções de carga para quem serializa proposições com temas."""
+    return [undefer(Proposition.themes)] if _themes_column_ready(db) else []
+
+
+def _loaded_themes(proposition: Any) -> Optional[List[str]]:
+    """Temas já carregados, sem nunca disparar carga preguiçosa da coluna."""
+    try:
+        state = sqlalchemy_inspect(proposition)
+    except NoInspectionAvailable:
+        themes = getattr(proposition, "themes", None)
+    else:
+        if "themes" in state.unloaded:
+            return None
+        themes = proposition.themes
+    if not isinstance(themes, list):
+        return None
+    return [theme for theme in themes if isinstance(theme, str) and theme.strip()]
 
 
 def _build_proposition_link(proposition: Proposition) -> Optional[str]:
@@ -89,6 +133,7 @@ def _serialize_proposition(proposition: Proposition) -> PropositionOut:
         presentation_month=proposition.presentation_month,
         summary=proposition.summary,
         details=proposition.details,
+        themes=_loaded_themes(proposition),
         created_at=proposition.created_at,
         updated_at=proposition.updated_at,
     )
@@ -142,7 +187,12 @@ def list_propositions(
     ),
 ) -> List[PropositionOut]:
     """Retorna uma lista paginada de proposições."""
-    stmt = select(Proposition).offset(offset).limit(limit)
+    stmt = (
+        select(Proposition)
+        .options(*proposition_load_options(db))
+        .offset(offset)
+        .limit(limit)
+    )
 
     if year is not None:
         stmt = stmt.where(Proposition.presentation_year == year)
@@ -183,7 +233,11 @@ def get_proposition(
     db: Session = Depends(get_db),
 ) -> PropositionOut:
     """Recupera detalhes de uma proposição específica."""
-    stmt = select(Proposition).where(Proposition.id == proposition_id)
+    stmt = (
+        select(Proposition)
+        .options(*proposition_load_options(db))
+        .where(Proposition.id == proposition_id)
+    )
     result = db.execute(stmt).scalar_one_or_none()
 
     if result is None:

@@ -93,6 +93,7 @@ class PropositionPayload(TypedDict, total=False):
     proposition_type_description: Optional[str]
     proposition_status_code: Optional[str]
     proposition_status_acronym: Optional[str]
+    themes: List[str]
 
 
 PROPOSITION_MUTABLE_FIELDS = [
@@ -107,6 +108,9 @@ PROPOSITION_MUTABLE_FIELDS = [
     "summary",
     "proposition_description",
     "details",
+    # Só entra no payload quando o processo foi baixado — falha de rede não
+    # apaga tema já coletado.
+    "themes",
 ]
 
 
@@ -518,6 +522,26 @@ def _extract_status_details(process_detail: Optional[Dict[str, Any]]) -> Dict[st
     return result
 
 
+def extract_senado_themes(process_detail: Any) -> Optional[List[str]]:
+    """Extrai as classificações temáticas oficiais do JSON de /processo/{id}.
+
+    Usa o nível mais específico (`descricao`, ex.: "Responsabilidade Civil"),
+    não a hierarquia inteira. Devolve None sem processo (não coletado) e []
+    quando o Senado não classificou a matéria.
+    """
+    if not isinstance(process_detail, dict):
+        return None
+
+    themes: List[str] = []
+    for item in _ensure_list(process_detail.get("classificacoes")):
+        if not isinstance(item, dict):
+            continue
+        name = _coerce_text(item.get("descricao"))
+        if name and name not in themes:
+            themes.append(name)
+    return themes
+
+
 def _build_details(entry: Dict[str, Any], process_detail: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     details: Dict[str, Any] = {}
     if entry.get("autoria_dict") is not None:
@@ -607,6 +631,10 @@ def _build_payload(
         "proposition_status_code": status_code,
         "proposition_status_acronym": status_acronym,
     }
+
+    themes = extract_senado_themes(process_detail)
+    if themes is not None:
+        payload["themes"] = themes
 
     return payload
 
