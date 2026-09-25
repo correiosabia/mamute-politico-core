@@ -132,13 +132,17 @@ devolver número errado.
 Para conferir a cobertura em produção:
 
 ```sql
-SELECT count(*) FILTER (WHERE r.vote_date IS NULL) AS sem_data,
-       count(*)                                    AS votos,
-       count(DISTINCT r.vote_date)                 AS dias_de_sessao
+SELECT count(*) FILTER (WHERE r.vote_date IS NULL)  AS sem_data,
+       count(*)                                     AS votos,
+       count(DISTINCT r.vote_date)
+         FILTER (WHERE r.vote_date >= '2023-02-01') AS dias_de_sessao
 FROM roll_call_votes r
 JOIN parliamentarian p ON p.id = r.parliamentarian_id
-WHERE p.type ILIKE '%Senad%' AND r.vote_date >= '2023-02-01';
+WHERE p.type ILIKE '%Senad%';
 ```
+
+(`sem_data` conta todos os votos do Senado ainda sem data; com o filtro de data
+no `WHERE`, como estava antes, ele dava sempre zero.)
 
 `dias_de_sessao` deve chegar perto de 121 para a legislatura inteira (valor
 apurado em 10/09/2026). Muito abaixo disso significa que
