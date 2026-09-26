@@ -166,6 +166,43 @@ turno vêm duplicadas em dobro; cor/raça só existe desde **2014** e federaçã
 desde **2022** (NULL antes disso é lacuna da fonte). O CSV nunca sobrescreve
 campo preenchido pela API — só completa NULL.
 
+### Temas oficiais das proposições — CS-92
+
+`proposition.themes` guarda as áreas temáticas oficiais da Casa (lista, na
+ordem da fonte). `NULL` = ainda não coletado; `[]` = coletado, a Casa não
+classificou.
+
+- **Câmara:** `camara_crawler.proposition` consulta
+  `/proposicoes/{id}/temas` junto com o detalhe de toda proposição nova.
+  O tema sai junto com a proposição (60 de 60 PLs de jul-set/2026 já tinham);
+  REQ, EMC, PRL, PAR e SBT nunca recebem tema — `[]` é o esperado para eles.
+- **Senado:** `senado_crawler.proposition` extrai
+  `processo.classificacoes[].descricao` do processo que já baixa (sem
+  requisição extra).
+- **Histórico:** o backfill preenche o que está `NULL`. Senado sai do JSON
+  guardado, sem rede; Câmara é 1 chamada por proposição (~0,3 s), das mais
+  recentes para as mais antigas. Roda no cron de hora em hora e num burst no
+  boot do container; auto-encerra quando a fila zera.
+
+```bash
+python -m mamute_scrappers.scripts.backfill_proposition_themes --status
+python -m mamute_scrappers.scripts.backfill_proposition_themes --chunks-per-run 3000
+python -m mamute_scrappers.scripts.backfill_proposition_themes --retry-failed  # devolve falhas à fila
+```
+
+Cobertura em produção (tipos que a Câmara classifica):
+
+```sql
+SELECT proposition_acronym,
+       count(*)                                           AS total,
+       count(*) FILTER (WHERE jsonb_array_length(themes) > 0) AS com_tema,
+       count(*) FILTER (WHERE themes = '[]'::jsonb)       AS sem_classificacao,
+       count(*) FILTER (WHERE themes IS NULL)             AS nao_coletado
+FROM proposition
+WHERE link ILIKE '%camara.leg.br%' AND presentation_date >= '2023-02-01'
+GROUP BY 1 ORDER BY 2 DESC;
+```
+
 ### Reprocessar análise de texto de pronunciamentos
 
 ```bash

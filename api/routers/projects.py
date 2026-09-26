@@ -50,7 +50,11 @@ try:
     from ..dependencies import get_db
     from ..security import get_admin_settings, resolve_ghost_admin
     from .parliamentarians import is_parliamentarian_visible
-    from .propositions import PropositionOut, _serialize_proposition
+    from .propositions import (
+        PropositionOut,
+        _serialize_proposition,
+        proposition_load_options,
+    )
     from .roll_call_votes import (
         RollCallVoteOut,
         _list_roll_call_votes_without_vote_date,
@@ -83,7 +87,11 @@ except (ImportError, ValueError):  # pragma: no cover - caminho alternativo
     from dependencies import get_db
     from security import get_admin_settings, resolve_ghost_admin
     from routers.parliamentarians import is_parliamentarian_visible
-    from routers.propositions import PropositionOut, _serialize_proposition
+    from routers.propositions import (
+        PropositionOut,
+        _serialize_proposition,
+        proposition_load_options,
+    )
     from routers.roll_call_votes import (
         RollCallVoteOut,
         _list_roll_call_votes_without_vote_date,
@@ -586,6 +594,7 @@ def _list_project_dashboard_propositions(
     )
     stmt = (
         select(Proposition)
+        .options(*proposition_load_options(db))
         .where(Proposition.id.in_(authorship_proposition_ids))
         .order_by(
             desc(Proposition.presentation_date).nulls_last(),

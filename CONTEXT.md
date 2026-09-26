@@ -22,6 +22,19 @@ An elected official from either the Chamber of Deputies or the Senate. Parliamen
 
 A legislative matter stored in `proposition`. Propositions can be associated with parliamentarian authors through `authors_proposition`.
 
+### Proposition Theme
+
+An official thematic area (*área temática*) that the Chamber or the Senate
+assigns to a proposition, stored as a list of names in `proposition.themes`,
+in the order the source returns them. A proposition often has several and the
+source marks none as the main one, so none is singled out. `NULL` means not
+collected yet; `[]` means collected and the House did not classify it — the
+Chamber never classifies requests (REQ), amendments (EMC) or committee
+opinions (PRL, PAR). The two must not look the same on screen. Not to be
+confused with the indexing keywords (`keywords`, `indexacao`) that the House
+documentation staff add later, nor with an **Editorial Agenda**, which is
+derived from a parliamentarian's speeches.
+
 ### Nominal Vote
 
 A recorded vote by a parliamentarian on a proposition, stored in `roll_call_votes`.

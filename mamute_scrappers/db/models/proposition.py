@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 from sqlalchemy.sql import func
 
 from ..base import Base
@@ -35,6 +35,11 @@ class Proposition(Base):
     presentation_month = Column(Integer)
     summary = Column(Text)
     details = Column(JSONB)
+    # Áreas temáticas oficiais da Casa (lista de nomes, na ordem da fonte).
+    # NULL = ainda não coletado; [] = coletado, a Casa não classificou.
+    # `deferred`: fica fora dos SELECTs por padrão, então quem não lê temas
+    # não quebra na janela do deploy em que a migration cs92 ainda não rodou.
+    themes = deferred(Column(JSONB))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
