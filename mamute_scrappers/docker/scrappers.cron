@@ -30,6 +30,13 @@ PYTHONPATH=/app
 # motivo, no --status (CS-94).
 55 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh backfill-vote-dates -- /usr/local/bin/python -m mamute_scrappers.scripts.backfill_vote_dates --chunks-per-run 200 >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# Backfill das áreas temáticas oficiais (proposition.themes) — CS-92. A cada 1h
+# no minuto 47 (livre entre os horários 40 e 55). Senado sai do JSON já
+# guardado, sem rede; Câmara é 1 chamada por proposição, das mais recentes para
+# as mais antigas — 3000/h cabem com folga na hora (~0,35 s cada). Proposição
+# nova já chega com tema pelos coletores. Auto-encerra quando termina.
+47 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh backfill-proposition-themes -- /usr/local/bin/python -m mamute_scrappers.scripts.backfill_proposition_themes --chunks-per-run 3000 >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # Burst de inicialização (@reboot): ao subir o container, dispara um loop que
 # esvazia a fila do backfill mais rápido do que o ritmo horário. Sai quando ve
 # "Backfill completo" / "nada a fazer" no output do orquestrador. Em runs
@@ -40,7 +47,10 @@ PYTHONPATH=/app
 # burst e o cron horario nao executam ao mesmo tempo: quem chegar segundo sai.
 @reboot sleep 30 && cd /app && (while true; do OUT=$(/usr/local/bin/python -m mamute_scrappers.scripts.backfill_propositions --chunks-per-run 100 2>&1); echo "$OUT" | tail -3; if echo "$OUT" | grep -qE 'Backfill completo|nada a fazer'; then break; fi; sleep 5; done) >> /proc/1/fd/1 2>&1
 @reboot sleep 30 && cd /app && (while true; do OUT=$(/usr/local/bin/python -m mamute_scrappers.scripts.backfill_votes_speeches --chunks-per-run 100 2>&1); echo "$OUT" | tail -3; if echo "$OUT" | grep -qE 'Backfill completo|nada a fazer'; then break; fi; sleep 5; done) >> /proc/1/fd/1 2>&1
-@reboot sleep 30 && cd /app && (while true; do OUT=$(/usr/local/bin/python -m mamute_scrappers.scripts.backfill_vote_dates --chunks-per-run 500 2>&1); echo "$OUT" | tail -3; if echo "$OUT" | grep -qE 'Backfill vote_dates completo|nada a fazer'; then break; fi; if echo "$OUT" | grep -q 'fonte fora do ar'; then sleep 300; else sleep 5; fi; done) >> /proc/1/fd/1 2>&1
+@reboot sleep 30 && cd /app && (while true; do OUT=$(/usr/local/bin/python -m mamute_scrappers.scripts.backfill_vote_dates --chunks-per-run 500 2>&1); echo "$OUT" | tail -3; if echo "$OUT" | grep -qE 'Backfill vote_dates completo|nada a fazer'; then break; fi; sleep 5; done) >> /proc/1/fd/1 2>&1
+# Temas: o deploy aplica a migration cs92 depois de subir o container; enquanto
+# a coluna não existe o script sai sem se declarar completo e o loop espera 60 s.
+@reboot sleep 30 && cd /app && (while true; do OUT=$(/usr/local/bin/python -m mamute_scrappers.scripts.backfill_proposition_themes --chunks-per-run 500 2>&1); echo "$OUT" | tail -3; if echo "$OUT" | grep -qE 'Backfill de temas completo|nada a fazer'; then break; fi; if echo "$OUT" | grep -q 'migration cs92 pendente'; then sleep 60; else sleep 5; fi; done) >> /proc/1/fd/1 2>&1
 
 # Atualização de trâmites/status (diário às 03h)
 25 3 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh senado-proposition-status -- /usr/local/bin/python -m mamute_scrappers.senado_crawler.proposition_status >> /proc/1/fd/1 2>> /proc/1/fd/2
