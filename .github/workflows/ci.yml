@@ -40,6 +40,27 @@ jobs:
       - name: Pytest
         run: pytest api/tests/ -v
 
+  # Builda a MESMA imagem que vai para producao (Dockerfile, Python da imagem,
+  # resolucao de dependencias do dia) e importa o app com a URL no formato do
+  # compose. O job de pytest acima roda em outro Python e com outra resolucao;
+  # foi esse vao que deixou o SQLAlchemy 2.1 derrubar a API em 28/09 (CS-103).
+  api-image-smoke:
+    name: API — imagem Docker sobe
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build da imagem
+        run: docker build -t mamute-api-smoke:ci api/
+
+      - name: Import do app dentro da imagem
+        run: |
+          docker run --rm \
+            -e DATABASE_URL=postgresql://smoke:smoke@127.0.0.1:5432/smoke \
+            mamute-api-smoke:ci \
+            python -c "import sqlalchemy, main; from db.engine import engine; print('SQLAlchemy', sqlalchemy.__version__, 'driver', engine.dialect.driver)"
+
   scrappers-tests:
     name: Scrappers — pytest
     runs-on: ubuntu-latest

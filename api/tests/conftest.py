@@ -19,8 +19,11 @@ if str(REPO_ROOT) not in sys.path:
 
 # Placeholder valido pra parser do SQLAlchemy. setdefault preserva valor real
 # se o dev rodar pytest com DATABASE_URL ja exportada.
+# Mesmo formato de producao (docker-compose monta `postgresql://`, sem driver):
+# com `postgresql+psycopg2://` aqui o CI nunca passava pelo caminho que
+# escolhe o driver sozinho, e foi esse caminho que quebrou em 28/09 (CS-103).
 os.environ.setdefault(
-    "DATABASE_URL", "postgresql+psycopg2://test:test@localhost:5432/test_db"
+    "DATABASE_URL", "postgresql://test:test@localhost:5432/test_db"
 )
 
 # Câmbio fixo nos testes: evita que rotas que chamam get_usd_brl_rate tentem

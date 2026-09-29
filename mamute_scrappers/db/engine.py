@@ -31,13 +31,35 @@ for env_file in ENV_CANDIDATES:
     if env_file.exists():
         load_dotenv(env_file, override=False)
 
-APPLICATION_NAME = os.getenv("APPLICATION_NAME", "MAMUTE_POLITICO_CRAWLER")
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Driver do Postgres sempre explícito. Uma URL `postgresql://` deixa a escolha
+# do DBAPI para o SQLAlchemy, e o default mudou no 2.1 (psycopg2 → psycopg 3).
+# Foi isso que derrubou a API em 28/09/2026 (CS-103): o rebuild puxou o 2.1 e a
+# imagem só tem psycopg2. Com o driver fixado aqui, o default da lib não importa.
+POSTGRES_DRIVER = "psycopg2"
+_IMPLICIT_POSTGRES_SCHEMES = ("postgresql://", "postgres://")
 
-if not DATABASE_URL:
+
+def normalize_database_url(url: str) -> str:
+    """Troca `postgresql://`/`postgres://` por `postgresql+psycopg2://`.
+
+    URLs que já declaram o driver (`postgresql+algo://`) e de outros bancos
+    (ex.: sqlite nos testes) passam intactas.
+    """
+    for scheme in _IMPLICIT_POSTGRES_SCHEMES:
+        if url.startswith(scheme):
+            return f"postgresql+{POSTGRES_DRIVER}://" + url[len(scheme):]
+    return url
+
+
+APPLICATION_NAME = os.getenv("APPLICATION_NAME", "MAMUTE_POLITICO_CRAWLER")
+_RAW_DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not _RAW_DATABASE_URL:
     raise RuntimeError(
         "DATABASE_URL não definido. Ajuste o arquivo .env ou exporte a variável antes de executar."
     )
+
+DATABASE_URL = normalize_database_url(_RAW_DATABASE_URL)
 
 
 def _str_to_bool(value: Optional[str], default: bool = False) -> bool:
@@ -77,6 +99,8 @@ SessionLocal: sessionmaker[Session] = sessionmaker(
 @lru_cache
 def get_engine(url: Optional[str] = None) -> Engine:
     """Permite obter uma engine reaproveitando a configuração padrão."""
+    if url:
+        url = normalize_database_url(url)
     if url and url != str(engine.url):
         return create_engine(url, echo=engine.echo, future=True)
     return engine
@@ -85,9 +109,11 @@ def get_engine(url: Optional[str] = None) -> Engine:
 __all__ = [
     "APPLICATION_NAME",
     "DATABASE_URL",
+    "POSTGRES_DRIVER",
     "SQLALCHEMY_ECHO",
     "engine",
     "SessionLocal",
     "get_engine",
+    "normalize_database_url",
 ]
 
