@@ -796,3 +796,75 @@ class TestPrompt:
         assert "Clima." in user_prompt
         assert "SUS." in user_prompt
         assert "meio-ambiente" in user_prompt
+
+
+class TestClienteDeVerdade:
+    """CS-105: em produção o job nunca chegou a chamar o modelo.
+
+    Os testes acima injetam um cliente falso, então nenhum deles percebia que
+    o cliente de verdade nem era criado (openai 1.12 + httpx 0.28 levantava
+    `TypeError: ... unexpected keyword argument 'proxies'`). Estes criam o
+    cliente real, com as versões instaladas, sem fazer chamada de rede.
+    """
+
+    def test_cliente_real_e_criado_com_as_versoes_instaladas(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+
+        cliente = job.construir_cliente(api_key="sk-or-v1-teste")
+
+        assert str(cliente.base_url).rstrip("/") == job.DEFAULT_BASE_URL
+
+    def test_openai_base_url_sobrescreve_o_padrao(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://outro.exemplo/v1")
+
+        cliente = job.construir_cliente(api_key="sk-teste")
+
+        assert str(cliente.base_url).rstrip("/") == "https://outro.exemplo/v1"
+
+    def test_sem_chave_falha_antes_de_tocar_no_banco(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Configuração quebrada para a rodada no início, com o erro original."""
+
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        _parlamentar(session, 1)
+
+        with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+            job.classificar(session=session, client=None, model="modelo-fake")
+
+        assert _rodadas(session) == {}
+
+
+class TestRodadaFalhou:
+    """Rodada com 100% de erro sai com status 1, não 0 (CS-105)."""
+
+    @pytest.mark.parametrize(
+        ("contadores", "falhou"),
+        [
+            ({"erros": 3, "classificados": 0, "sem_pauta": 0}, True),
+            ({"erros": 3, "classificados": 1, "sem_pauta": 0}, False),
+            ({"erros": 3, "classificados": 0, "sem_pauta": 1}, False),
+            ({"erros": 0, "classificados": 0, "sem_pauta": 0}, False),
+        ],
+    )
+    def test_rodada_falhou(self, contadores: dict, falhou: bool) -> None:
+        assert job.rodada_falhou(contadores) is falhou
+
+    def test_main_sai_com_status_1_quando_tudo_falha(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            job,
+            "classificar",
+            lambda **_: {"erros": 5, "classificados": 0, "sem_pauta": 0},
+        )
+        monkeypatch.setattr("sys.argv", ["classify_editorial_agendas"])
+
+        with pytest.raises(SystemExit) as saida:
+            job.main()
+
+        assert saida.value.code == 1
