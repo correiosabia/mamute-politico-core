@@ -70,6 +70,10 @@ LOG_LEVEL_CHOICES = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 # grande o suficiente para o material de um parlamentar e já está pago pela
 # mesma chave.
 DEFAULT_MODEL = "google/gemini-2.5-flash"
+# O modelo padrão só existe no OpenRouter, e a OPENAI_API_KEY de produção é
+# uma chave do OpenRouter. Sem base URL o cliente ia para api.openai.com e
+# toda chamada falhava por autenticação (CS-105). OPENAI_BASE_URL sobrescreve.
+DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
 # ~6k tokens de material por parlamentar. Acima disso o custo cresce sem que a
 # classificação melhore — as pautas dominantes já apareceram muito antes.
@@ -338,10 +342,8 @@ def construir_cliente(
     if not resolved_key:
         raise RuntimeError("OPENAI_API_KEY não configurada.")
 
-    resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL")
-    if resolved_base_url:
-        return OpenAI(api_key=resolved_key, base_url=resolved_base_url)
-    return OpenAI(api_key=resolved_key)
+    resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL") or DEFAULT_BASE_URL
+    return OpenAI(api_key=resolved_key, base_url=resolved_base_url)
 
 
 def chamar_modelo(
@@ -630,6 +632,12 @@ def _classificar_na_sessao(
         logger.warning("Vocabulário de pautas vazio; nada a classificar.")
         return {"considerados": 0, "classificados": 0, "sem_pauta": 0, "pulados": 0}
 
+    # Cliente criado antes de qualquer trabalho: configuração ou dependência
+    # quebrada aparece aqui, com o erro original, e não no meio da rodada
+    # (CS-105: o cliente não subia e o job caía no primeiro parlamentar).
+    if client is None:
+        client = construir_cliente()
+
     versao = vocabulary_version_atual(session)
     stopwords = carregar_stopwords(session)
     alvos = parlamentares_alvo(
@@ -669,9 +677,6 @@ def _classificar_na_sessao(
             )
             contadores["sem_material"] += 1
             continue
-
-        if client is None:
-            client = construir_cliente()
 
         system_prompt, user_prompt = montar_prompt(vocabulario, texto)
         try:
@@ -780,13 +785,24 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_parser().parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
-    classificar(
+    contadores = classificar(
         parliamentarian_id=args.parliamentarian_id,
         limit=args.limit,
         force=args.force,
         batch_size=args.batch_size,
         model=args.model,
     )
+    if rodada_falhou(contadores):
+        # Status != 0 aparece no `[cron:editorial-agendas] finish status=...`.
+        # Antes a rodada com 100% de erro terminava com status 0 e ninguém via.
+        logger.error("Todas as chamadas ao modelo falharam nesta rodada.")
+        raise SystemExit(1)
+
+
+def rodada_falhou(contadores: dict[str, int]) -> bool:
+    """Houve tentativa de chamar o modelo e nenhuma deu certo."""
+    sucessos = contadores.get("classificados", 0) + contadores.get("sem_pauta", 0)
+    return contadores.get("erros", 0) > 0 and sucessos == 0
 
 
 if __name__ == "__main__":
