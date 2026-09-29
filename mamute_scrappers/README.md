@@ -134,6 +134,62 @@ python -m mamute_scrappers.scripts.backfill_cota --chunks-per-run 2
 python -m mamute_scrappers.scripts.backfill_cota --status
 ```
 
+### Data das votações nominais (`vote_date`) — CS-94
+
+A data vem da sessão, não do voto. Os coletores de votação já gravam
+`vote_date` (Câmara: `dataHoraRegistro`; Senado: `dataSessao`); os votos
+gravados antes da coluna existir são preenchidos por `backfill_vote_dates`,
+uma chamada por votação (todas as linhas com o mesmo `link`), de hora em hora.
+
+O link que o coletor do Senado grava **não resolve** na fonte:
+`/dadosabertos/votacao/{codigoVotacaoSve}` responde 404 e
+`/dadosabertos/votacao?codigoSessaoVotacao=` ignora o filtro e devolve a lista
+padrão. O backfill consulta `?codigoMateria=` (o único filtro respeitado) e
+casa a votação pelo código do link.
+
+Votação que não ganha data fica como resíduo no state file, com o motivo, e
+aparece no `--status`:
+
+| Motivo | Significado |
+|---|---|
+| `fonte_404` | o link não existe mais na fonte |
+| `votacao_ausente_da_materia` | o Senado não lista esta votação entre as da matéria |
+| `fonte_sem_data` | a fonte responde, mas sem data para esta votação |
+| `sem_codigo_materia` | voto do Senado sem `proposition_code` para consultar |
+| `falha_repetida` | 5 rodadas com erro de rede/5xx neste link |
+
+Erro de rede ou 5xx volta para a fila; cinco falhas seguidas na mesma rodada
+encerram a rodada sem contar tentativa (fonte fora do ar). Votos sem `link`
+nunca entram na fila e são contados à parte.
+
+```bash
+python -m mamute_scrappers.scripts.backfill_vote_dates --status
+python -m mamute_scrappers.scripts.backfill_vote_dates --chunks-per-run 200
+```
+
+Medir em produção (somente leitura):
+
+```sql
+-- quanto falta, por origem do link
+SELECT CASE WHEN link IS NULL THEN 'sem link'
+            WHEN link LIKE '%camara.leg.br%' THEN 'camara'
+            WHEN link LIKE '%codigoSessaoVotacao=%' THEN 'senado ?codigoSessaoVotacao'
+            WHEN link LIKE '%senado.leg.br%' THEN 'senado /votacao/{codigo}'
+            ELSE 'outro' END                                 AS origem,
+       count(*)                                              AS votos,
+       count(*) FILTER (WHERE vote_date IS NULL)             AS votos_sem_data,
+       count(DISTINCT link) FILTER (WHERE vote_date IS NULL) AS votacoes_sem_data
+FROM roll_call_votes
+GROUP BY 1 ORDER BY 1;
+
+-- datas gravadas pela versão antiga a partir da lista padrão do Senado:
+-- dezenas de votações distintas num mesmo dia denunciam data errada
+SELECT vote_date, count(DISTINCT link) AS votacoes
+FROM roll_call_votes
+WHERE link LIKE '%codigoSessaoVotacao=%'
+GROUP BY vote_date ORDER BY votacoes DESC LIMIT 10;
+```
+
 ### Perfil demográfico dos candidatos (TSE) — CS-63
 
 Cor/raça, gênero, escolaridade, ocupação, estado civil, nascimento e

@@ -26,7 +26,8 @@ PYTHONPATH=/app
 # no minuto 55 — depois do camara-speeches do minuto 52). Cada link representa
 # uma votação inteira (N votos), então uma chamada HTTP popula N linhas. Com
 # ~5-10k votações distintas no banco, 200 links/h consome a fila em ~1 dia.
-# Auto-encerra quando termina.
+# Auto-encerra quando termina. O que a fonte não data fica como resíduo, com o
+# motivo, no --status (CS-94).
 55 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh backfill-vote-dates -- /usr/local/bin/python -m mamute_scrappers.scripts.backfill_vote_dates --chunks-per-run 200 >> /proc/1/fd/1 2>> /proc/1/fd/2
 
 # Backfill das áreas temáticas oficiais (proposition.themes) — CS-92. A cada 1h
