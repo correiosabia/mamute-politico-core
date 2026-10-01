@@ -9,6 +9,7 @@ from .candidacy import Candidacy
 from .chatbot_usage import ChatbotUsage
 from .committee import Committee
 from .committee_attendance import CommitteeAttendance
+from .election_result import CandidacyResult, ElectionResultNotice
 from .electoral_history import ElectoralHistory
 from .editorial_agenda import (
     EditorialAgenda,
@@ -44,10 +45,12 @@ __all__ = [
     "ApiCoverage",
     "AuthorsProposition",
     "Candidacy",
+    "CandidacyResult",
     "ChatbotUsage",
     "Committee",
     "CommitteeAttendance",
     "EditorialAgenda",
+    "ElectionResultNotice",
     "ElectoralHistory",
     "FeatureFlag",
     "FeatureFlagTier",
