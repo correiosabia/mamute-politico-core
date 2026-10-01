@@ -1,0 +1,119 @@
+{
+ "ele": "21272",
+ "t": "1",
+ "f": "s",
+ "sup": "n",
+ "tpabr": "uf",
+ "cdabr": "sp",
+ "dg": "29/09/2026",
+ "hg": "16:43:58",
+ "idg": "176873526",
+ "dt": "29/09/2026",
+ "ht": "16:42:48",
+ "dv": "s",
+ "tf": "s",
+ "and": "f",
+ "esae": "n",
+ "carg": [
+  {
+   "cd": "6",
+   "nmn": "Deputado Federal",
+   "nmm": "Deputado Federal",
+   "nmf": "Deputada Federal",
+   "nv": "69",
+   "qe": "371139",
+   "agr": [
+    {
+     "n": "60141222",
+     "nm": "Federacao teste para string longa especiais 99!@#$\"TSE\"",
+     "tp": "f",
+     "com": "P 9966 / P 9991",
+     "tvtn": "1196386",
+     "tvan": "1196386",
+     "tvtl": "34585",
+     "tval": "34585",
+     "vag": "4",
+     "par": [
+      {
+       "n": "85",
+       "sg": "P 9991",
+       "nm": "PARTIDO 9991",
+       "nfed": "102",
+       "dvt": "Válido (legenda)",
+       "tvtn": "803570",
+       "tvtl": "17508",
+       "tval": "17508",
+       "tvan": "803570",
+       "cand": [
+        {
+         "n": "8537",
+         "sqcand": "41627126",
+         "nm": "CANDIDATO 8580",
+         "nmu": "CANDIDATO 8580",
+         "dt": "30/05/1984",
+         "dvt": "Válido",
+         "seq": "351",
+         "e": "n",
+         "st": "Suplente",
+         "vap": "17167",
+         "pvap": "0,06",
+         "pvapn": "0,056485423"
+        },
+        {
+         "n": "8569",
+         "sqcand": "41627158",
+         "nm": "CANDIDATO 8397",
+         "nmu": "CANDIDATO 8397",
+         "dt": "20/12/1998",
+         "dvt": "Válido",
+         "seq": "25",
+         "e": "s",
+         "st": "Eleito por média",
+         "vap": "17311",
+         "pvap": "0,06",
+         "pvapn": "0,056959233"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141257",
+     "nm": "PARTIDO 9963",
+     "tp": "i",
+     "com": "P 9963",
+     "vag": "0",
+     "par": [
+      {
+       "n": "67",
+       "sg": "P 9963",
+       "nm": "PARTIDO 9963",
+       "nfed": "",
+       "dvt": "Válido (legenda)",
+       "tvtn": "0",
+       "tvtl": "17196",
+       "tval": "17196",
+       "tvan": "1194747",
+       "cand": [
+        {
+         "n": "6742",
+         "sqcand": "41626823",
+         "nm": "CANDIDATO 5922",
+         "nmu": "CANDIDATO 5922",
+         "dt": "12/07/1973",
+         "dvt": "Anulado sub judice",
+         "seq": "1670",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "17022",
+         "pvap": "0,06",
+         "pvapn": "0,056008322"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

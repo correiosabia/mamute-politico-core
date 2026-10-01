@@ -1,0 +1,564 @@
+{
+ "ele": "6257",
+ "t": "1",
+ "f": "o",
+ "sup": "n",
+ "tpabr": "br",
+ "cdabr": "br",
+ "dg": "29/09/2026",
+ "hg": "19:25:59",
+ "idg": "207544",
+ "dt": "",
+ "ht": "",
+ "dv": "s",
+ "tf": "n",
+ "and": "n",
+ "carg": [
+  {
+   "cd": "1",
+   "nmn": "Presidente",
+   "nmm": "Presidente",
+   "nmf": "Presidente",
+   "nv": "1",
+   "fed": [
+    {
+     "n": "101",
+     "sg": "PT/PC do B/PV",
+     "nm": "FEDERAÇÃO BRASIL DA ESPERANÇA - FE BRASIL",
+     "com": "PT/PC do B/PV",
+     "npar": [
+      "13",
+      "43",
+      "65"
+     ]
+    }
+   ],
+   "agr": [
+    {
+     "n": "280001801177",
+     "nm": "PARTIDO LIBERAL",
+     "tp": "i",
+     "com": "PL",
+     "par": [
+      {
+       "n": "22",
+       "sg": "PL",
+       "nm": "PARTIDO LIBERAL",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "22",
+         "sqcand": "280002551544",
+         "nm": "FLAVIO NANTES BOLSONARO",
+         "nmu": "FLAVIO BOLSONARO",
+         "dt": "30/04/1981",
+         "seq": "10",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002551543",
+           "nm": "ALFREDO GASPAR DE MENDONÇA NETO",
+           "nmu": "ALFREDO GASPAR",
+           "sgp": "PL"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001801222",
+     "nm": "PARTIDO SOCIAL DEMOCRÁTICO",
+     "tp": "i",
+     "com": "PSD",
+     "par": [
+      {
+       "n": "55",
+       "sg": "PSD",
+       "nm": "PARTIDO SOCIAL DEMOCRÁTICO",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "55",
+         "sqcand": "280002551932",
+         "nm": "RONALDO RAMOS CAIADO",
+         "nmu": "RONALDO CAIADO",
+         "dt": "25/09/1949",
+         "seq": "2",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002551933",
+           "nm": "GILBERTO KASSAB",
+           "nmu": "GILBERTO KASSAB",
+           "sgp": "PSD"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001800617",
+     "nm": "BRASIL PRONTO PRA MAIS",
+     "tp": "c",
+     "com": "PSB / PDT / PCDOB / PT / PV / PSOL / REDE",
+     "tvtn": "0",
+     "tvan": "0",
+     "par": [
+      {
+       "n": "13",
+       "sg": "PT",
+       "nm": "PARTIDO DOS TRABALHADORES",
+       "nfed": "101",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "13",
+         "sqcand": "280002542548",
+         "nm": "LUIZ INÁCIO LULA DA SILVA",
+         "nmu": "LULA",
+         "dt": "06/10/1945",
+         "seq": "1",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002542549",
+           "nm": "GERALDO JOSE RODRIGUES ALCKMIN FILHO",
+           "nmu": "GERALDO ALCKMIN",
+           "sgp": "PSB"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001801307",
+     "nm": "DEMOCRACIA CRISTÃ",
+     "tp": "i",
+     "com": "DC",
+     "par": [
+      {
+       "n": "27",
+       "sg": "DC",
+       "nm": "DEMOCRACIA CRISTÃ",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "27",
+         "sqcand": "280002552484",
+         "nm": "CLARIANA ZACARKIM BARAO",
+         "nmu": "CLARIANA BARAO",
+         "dt": "03/04/1987",
+         "seq": "12",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002552485",
+           "nm": "FABIANA CRISTINA TAVARES TORQUATO",
+           "nmu": "FABIANA TORQUATO",
+           "sgp": "DC"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001801228",
+     "nm": "PARTIDO COMUNISTA BRASILEIRO",
+     "tp": "i",
+     "com": "PCB",
+     "par": [
+      {
+       "n": "21",
+       "sg": "PCB",
+       "nm": "PARTIDO COMUNISTA BRASILEIRO",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "21",
+         "sqcand": "280002551975",
+         "nm": "EDMILSON SILVA COSTA",
+         "nmu": "EDMILSON COSTA",
+         "dt": "08/04/1950",
+         "seq": "3",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002551976",
+           "nm": "CLEUSA DOS SANTOS",
+           "nmu": "CLEUSA SANTOS",
+           "sgp": "PCB"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001800485",
+     "nm": "PARTIDO SOCIALISTA  DOS TRABALHADORES UNIFICADO",
+     "tp": "i",
+     "com": "PSTU",
+     "par": [
+      {
+       "n": "16",
+       "sg": "PSTU",
+       "nm": "PARTIDO SOCIALISTA  DOS TRABALHADORES UNIFICADO",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "16",
+         "sqcand": "280002541457",
+         "nm": "HERTZ DA CONCEICAO DIAS",
+         "nmu": "HERTZ DIAS",
+         "dt": "20/10/1970",
+         "seq": "8",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002541458",
+           "nm": "VANESSA PORTUGAL BARBOSA",
+           "nmu": "VANESSA PORTUGAL",
+           "sgp": "PSTU"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001801587",
+     "nm": "BRASIL DOS NOSSOS SONHOS",
+     "tp": "c",
+     "com": "AGIR / AVANTE",
+     "tvtn": "0",
+     "tvan": "0",
+     "par": [
+      {
+       "n": "70",
+       "sg": "AVANTE",
+       "nm": "AVANTE",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "70",
+         "sqcand": "280002551547",
+         "nm": "AUGUSTO JORGE CURY",
+         "nmu": "ESCRITOR AUGUSTO CURY",
+         "dt": "02/10/1958",
+         "seq": "5",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002551546",
+           "nm": "JULIO CESAR DELGADO",
+           "nmu": "JÚLIO DELGADO",
+           "sgp": "AVANTE"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001800487",
+     "nm": "PARTIDO NOVO",
+     "tp": "i",
+     "com": "NOVO",
+     "par": [
+      {
+       "n": "30",
+       "sg": "NOVO",
+       "nm": "PARTIDO NOVO",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "30",
+         "sqcand": "280002539826",
+         "nm": "ROMEU ZEMA NETO",
+         "nmu": "ZEMA",
+         "dt": "28/10/1964",
+         "seq": "6",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002539825",
+           "nm": "LUIS EDUARDO GRANGEIRO GIRÃO",
+           "nmu": "EDUARDO GIRÃO",
+           "sgp": "NOVO"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001800442",
+     "nm": "UNIDADE POPULAR",
+     "tp": "i",
+     "com": "UP",
+     "par": [
+      {
+       "n": "80",
+       "sg": "UP",
+       "nm": "UNIDADE POPULAR",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "80",
+         "sqcand": "280002538811",
+         "nm": "SAMARA MARTINS DA SILVA FEITOSA",
+         "nmu": "SAMARA",
+         "dt": "31/08/1987",
+         "seq": "13",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002538812",
+           "nm": "RAQUEL NONATO DE BRICIO",
+           "nmu": "RAQUEL BRÍCIO",
+           "sgp": "UP"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001800972",
+     "nm": "DEMOCRATA",
+     "tp": "i",
+     "com": "DEMOCRATA",
+     "par": [
+      {
+       "n": "35",
+       "sg": "DEMOCRATA",
+       "nm": "DEMOCRATA",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "35",
+         "sqcand": "280002548139",
+         "nm": "WILSON GRASSI JUNIOR",
+         "nmu": "VETERINÁRIO WILSON GRASSI",
+         "dt": "13/03/1970",
+         "seq": "7",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002548140",
+           "nm": "SUÊD HAIDAR NOGUEIRA",
+           "nmu": "SUÊD HAIDAR",
+           "sgp": "DEMOCRATA"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001800499",
+     "nm": "PARTIDO MISSÃO",
+     "tp": "i",
+     "com": "MISSÃO",
+     "par": [
+      {
+       "n": "14",
+       "sg": "MISSÃO",
+       "nm": "PARTIDO MISSÃO",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "14",
+         "sqcand": "280002540694",
+         "nm": "RENAN ANTONIO FERREIRA DOS SANTOS",
+         "nmu": "RENAN SANTOS",
+         "dt": "14/02/1984",
+         "seq": "11",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002540693",
+           "nm": "AROLDO MEDINA",
+           "nmu": "CORONEL MEDINA",
+           "sgp": "MISSÃO"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001801455",
+     "nm": "PARTIDO RENOVADOR TRABALHISTA BRASILEIRO",
+     "tp": "i",
+     "com": "PRTB",
+     "par": [
+      {
+       "n": "28",
+       "sg": "PRTB",
+       "nm": "PARTIDO RENOVADOR TRABALHISTA BRASILEIRO",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "28",
+         "sqcand": "280002554479",
+         "nm": "LEONARDO ALVES DE ARAUJO",
+         "nmu": "LEONARDO AVALANCHE",
+         "dt": "23/10/1977",
+         "seq": "9",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002554490",
+           "nm": "SILVIA HELLEN DA SILVA PEREIRA",
+           "nmu": "SILVIA",
+           "sgp": "PRTB"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "280001801308",
+     "nm": "PARTIDO DA CAUSA OPERÁRIA",
+     "tp": "i",
+     "com": "PCO",
+     "par": [
+      {
+       "n": "29",
+       "sg": "PCO",
+       "nm": "PARTIDO DA CAUSA OPERÁRIA",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "0",
+       "cand": [
+        {
+         "n": "29",
+         "sqcand": "280002552487",
+         "nm": "RUI COSTA PIMENTA",
+         "nmu": "RUI COSTA PIMENTA",
+         "dt": "25/06/1957",
+         "seq": "4",
+         "e": "n",
+         "st": "",
+         "vap": "0",
+         "pvap": "0,00",
+         "pvapn": "0",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "280002552486",
+           "nm": "ANTONIO CARLOS SILVA",
+           "nmu": "ANTÔNIO CARLOS",
+           "sgp": "PCO"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
