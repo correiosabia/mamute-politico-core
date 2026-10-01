@@ -110,6 +110,13 @@ PYTHONPATH=/app
 # por dia (retomável; parlamentares primeiro, depois anos mais recentes).
 50 6 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh tse-electoral-history -- /usr/local/bin/python -m mamute_scrappers.tse_crawler.electoral_history --max-details 5000 >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# Resultado da eleição (CS-106): coleta os JSONs oficiais do TSE e avisa quem
+# acompanha candidatos, a cada 30 min. Antes da data do pleito a coleta sai na
+# hora; arquivo já encerrado não é baixado de novo. O envio só acontece com a
+# flag `resultado_eleicao` em admins/all (tela de Feature Flags) e nunca repete
+# (election_result_notice). Pode sair do cron depois do 2º turno (25/10/2026).
+*/30 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh resultado-eleicao -- /bin/sh -c "/usr/local/bin/python -m mamute_scrappers.tse_crawler.resultados && /usr/local/bin/python -m mamute_scrappers.scripts.notificacao.resultado_eleicao" >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # --- Relatórios por e-mail (provedor definido por MAIL_PROVIDER; hoje: Mailgun) ---
 # Uma linha por periodicidade: CADA job roda no seu horário e só envia aos projetos
 # cujo tier tem aquela periodicidade em `tiers.detalhes.periodicidade_email`. Assim
