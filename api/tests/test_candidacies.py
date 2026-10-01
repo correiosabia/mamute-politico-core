@@ -12,11 +12,13 @@ jeito e valem só em Postgres.
 """
 from __future__ import annotations
 
+import json
 import unicodedata
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -79,7 +81,66 @@ def _make_session() -> Session:
                 (4, 2022, 1004, 5, 'Senador', 'CE', 789, 'LUCIANA ANTIGA',
                  'LUCIANA ANTIGA', 'PDT', null, 'unmatched'),
                 (5, 2026, 1005, 1, null, 'BR', 10, 'CANDIDATA BR',
-                 'CANDIDATA BR', 'NOVO', null, 'unmatched')
+                 'CANDIDATA BR', 'NOVO', null, 'unmatched'),
+                (6, 2022, 1006, 2, 'VICE-PRESIDENTE', 'BR', 22, 'VICE ANTIGO',
+                 'VICE ANTIGO', 'PSB', null, 'unmatched')
+            """
+        )
+        # Chapa no formato do detalhe da DivulgaCandContas: o vice só existe
+        # dentro do payload do titular. O item sem nome tem de ser ignorado.
+        conn.execute(
+            text("update candidacy set details = :d where id = 5"),
+            {
+                "d": json.dumps(
+                    {
+                        "vices": [
+                            {
+                                "nm_URNA": "VICE DA CHAPA",
+                                "nm_CANDIDATO": "VICE DA CHAPA COMPLETO",
+                                "ds_CARGO": "Vice-presidente",
+                                "sg_PARTIDO": "NOVO",
+                            },
+                            {"ds_CARGO": "Vice-presidente"},
+                        ]
+                    }
+                )
+            },
+        )
+        conn.exec_driver_sql(
+            """
+            create table projetos (
+                id integer primary key, nome text not null, cliente text,
+                email text not null, tier_id integer, tag_ghost text,
+                qtd_termos integer not null default 0,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp,
+                deleted_at datetime
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            """
+            create table projetos_candidacy (
+                id integer primary key, projeto_id integer not null,
+                candidacy_id integer not null,
+                created_at datetime not null default current_timestamp,
+                unique (projeto_id, candidacy_id)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            """
+            insert into projetos (id, nome, email) values
+                (10, 'Projeto 10', 'assinante@example.com'),
+                (20, 'Projeto 20', 'outro@example.com')
+            """
+        )
+        # Assinante acompanha 1 (CE/Senado/PDT) e 3 (SP/Senado/PSDB); o outro
+        # projeto acompanha 2, que não pode vazar para o assinante.
+        conn.exec_driver_sql(
+            """
+            insert into projetos_candidacy (projeto_id, candidacy_id) values
+                (10, 1), (10, 3), (20, 2)
             """
         )
         conn.exec_driver_sql(
@@ -109,6 +170,20 @@ def session() -> Session:
 def client(session: Session) -> TestClient:
     main.app.dependency_overrides[get_db] = lambda: session
     main.app.dependency_overrides[verify_token] = lambda: None
+    yield TestClient(main.app)
+    main.app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def client_logado(session: Session) -> TestClient:
+    """Cliente com e-mail no token, como o verify_token real deixa no request."""
+
+    def fake_verify_token(request: Request) -> dict[str, str]:
+        request.state.token_email = "assinante@example.com"
+        return {"sub": "assinante@example.com"}
+
+    main.app.dependency_overrides[get_db] = lambda: session
+    main.app.dependency_overrides[verify_token] = fake_verify_token
     yield TestClient(main.app)
     main.app.dependency_overrides.clear()
 
@@ -159,7 +234,7 @@ def test_filtros_combinados(client):
 
 def test_election_year_explicito_alcanca_eleicao_antiga(client):
     resp = client.get("/api/candidacies/", params={"election_year": 2022})
-    assert [c["id"] for c in resp.json()] == [4]
+    assert sorted(c["id"] for c in resp.json()) == [4, 6]
 
 
 def test_paginacao_nao_repete_nem_perde_linha(client):
@@ -200,6 +275,87 @@ def test_filters_devolve_so_o_que_existe_na_base(client):
         {"code": 5, "name": "Senador"},
         {"code": 6, "name": "Deputado Federal"},
     ]
+    assert body["parties"] == ["NOVO", "PDT", "PSDB", "PT"]
+
+
+def test_filters_recorta_pela_eleicao_pedida(client):
+    # CS-113: o VICE-PRESIDENTE de 2022 (linha própria do CSV) não pode
+    # aparecer no dropdown de 2026, onde devolveria lista vazia.
+    padrao = client.get("/api/candidacies/filters").json()
+    assert 2 not in [o["code"] for o in padrao["offices"]]
+    assert "PSB" not in padrao["parties"]
+
+    antiga = client.get("/api/candidacies/filters", params={"election_year": 2022}).json()
+    # A lista de anos não é recortada: é ela que permite trocar de eleição.
+    assert antiga["election_years"] == [2026, 2022]
+    assert antiga["states"] == ["BR", "CE"]
+    assert antiga["offices"] == [
+        {"code": 2, "name": "VICE-PRESIDENTE"},
+        {"code": 5, "name": "Senador"},
+    ]
+    assert antiga["parties"] == ["PDT", "PSB"]
+
+
+def test_filtro_de_partido(client):
+    resp = client.get("/api/candidacies/", params={"party": "PDT"})
+    # O PDT de 2022 (id 4) fica fora: o default é a eleição de 2026.
+    assert [c["id"] for c in resp.json()] == [1]
+
+
+def test_partido_combina_com_uf_e_cargo(client):
+    resp = client.get(
+        "/api/candidacies/", params={"party": "PDT", "state": "CE", "office_code": 5}
+    )
+    assert [c["id"] for c in resp.json()] == [1]
+
+    resp = client.get(
+        "/api/candidacies/", params={"party": "PDT", "state": "SP", "office_code": 5}
+    )
+    assert resp.json() == []
+
+
+def test_chapa_expoe_vices_do_detalhe(client):
+    br = client.get("/api/candidacies/", params={"state": "BR"}).json()[0]
+    assert br["vices"] == [
+        {"name": "VICE DA CHAPA", "role": "Vice-presidente", "party": "NOVO"}
+    ]
+
+
+def test_candidatura_sem_detalhe_tem_lista_de_vices_vazia(client):
+    senado = client.get("/api/candidacies/", params={"name": "luciana"}).json()[0]
+    assert senado["vices"] == []
+
+
+def test_only_followed_devolve_so_as_acompanhadas_do_token(client_logado):
+    resp = client_logado.get("/api/candidacies/", params={"only_followed": True})
+    assert resp.status_code == 200
+    # 2 é acompanhada pelo OUTRO projeto e não pode aparecer.
+    assert sorted(c["id"] for c in resp.json()) == [1, 3]
+
+
+def test_only_followed_combina_com_os_filtros(client_logado):
+    resp = client_logado.get(
+        "/api/candidacies/",
+        params={"only_followed": True, "state": "SP", "office_code": 5, "party": "PSDB"},
+    )
+    assert [c["id"] for c in resp.json()] == [3]
+
+    resp = client_logado.get(
+        "/api/candidacies/", params={"only_followed": True, "party": "PT"}
+    )
+    assert resp.json() == []
+
+
+def test_only_followed_sem_email_no_token_e_401(client):
+    # O fixture `client` não grava token_email: sem dono não há "acompanhadas".
+    resp = client.get("/api/candidacies/", params={"only_followed": True})
+    assert resp.status_code == 401
+
+
+def test_only_followed_falso_nao_exige_projeto(client):
+    resp = client.get("/api/candidacies/", params={"only_followed": False})
+    assert resp.status_code == 200
+    assert len(resp.json()) == 4
 
 
 def test_busca_sem_acento_encontra_nome_com_acento(client):
