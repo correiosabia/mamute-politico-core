@@ -74,6 +74,14 @@ endpoints) e app (modal + registro da flag). Merge do core primeiro.
 - CLI: `python -m mamute_scrappers.tse_crawler.resultados [--dry-run] [--uf SP] [--cargo 6]`.
   `--dry-run` imprime taxa de casamento e situação sem gravar.
 
+### 1b. Tabela `tse_result_file` (acrescentada na implementação)
+
+Um registro por arquivo (eleição × UF × cargo) com `totalizacao_final`,
+`tse_atualizado_em` e contagem de candidatos no arquivo e casados. Motivo: um
+arquivo pode encerrar sem nenhum candidato casado na nossa base, e o envio
+precisa saber que ele fechou para tratar o acompanhado ausente como "Não
+consta". Também é o que permite pular arquivos já encerrados.
+
 ### 2. Tabela `candidacy_result`
 
 | coluna | tipo | nota |
@@ -206,6 +214,24 @@ abertos. Remoção da linha depois do 2º turno fica registrada como pendência.
   no Mailpit e o modal no app.
 - Prod antes de 04/10: `--dry-run` da coleta contra os arquivos oficiais para
   medir a taxa de casamento das 58 marcações.
+
+## CS-108 (entrou junto, 01/10)
+
+- Regra da cota decidida na implementação, com o Luiz fora: candidatura com
+  resultado encerrado e `eleito = false` (não eleito, suplente, derrotado no
+  2º turno) **continua acompanhada mas não ocupa vaga** em `qtd_candidatos`.
+  Ponto único: `_candidatura_nao_eleita` em `api/routers/projects.py`.
+- Busca expõe o resultado oficial da candidatura e aceita filtro por quem foi
+  ao 2º turno, para a pessoa escolher o novo candidato.
+
+## Validação feita em 01/10
+
+- Migration aplicada do zero (upgrade/downgrade/upgrade) num Postgres local.
+- Coleta contra o simulado: 109 arquivos em ~47 s, todos encerrados; segunda
+  rodada não baixa nada. Envio via SMTP real (Mailpit com STARTTLS): flag off
+  não envia, admins só admin, all completa, repetir não duplica.
+- Casamento real: os 51 candidatos distintos acompanhados em prod (58
+  marcações) estão todos nos arquivos oficiais de 2026.
 
 ## Fora do escopo
 
