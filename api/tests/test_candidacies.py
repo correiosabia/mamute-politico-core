@@ -82,6 +82,19 @@ def _make_session() -> Session:
                  'CANDIDATA BR', 'NOVO', null, 'unmatched')
             """
         )
+        conn.exec_driver_sql(
+            """
+            create table candidacy_result (
+                id integer primary key, candidacy_id integer not null,
+                turno integer not null, codigo_eleicao integer not null,
+                situacao text, eleito boolean, votos integer, percentual numeric,
+                destinacao_voto text,
+                totalizacao_final boolean not null default 0,
+                tse_atualizado_em datetime, coletado_em datetime,
+                unique (candidacy_id, turno)
+            )
+            """
+        )
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
 
 
@@ -211,3 +224,39 @@ def test_busca_sem_acento_alcanca_o_nome_completo(client):
     # "GONÇALVES" só existe em full_name — as duas colunas são dobradas.
     resp = client.get("/api/candidacies/", params={"name": "goncalves"})
     assert [c["id"] for c in resp.json()] == [2]
+
+
+def _resultado(session, candidacy_id, turno, situacao, eleito, final=True):
+    from sqlalchemy import text
+
+    session.execute(
+        text(
+            "insert into candidacy_result (candidacy_id, turno, codigo_eleicao, situacao, "
+            "eleito, totalizacao_final) values (:c, :t, 6259, :s, :e, :f)"
+        ),
+        {"c": candidacy_id, "t": turno, "s": situacao, "e": eleito, "f": final},
+    )
+    session.commit()
+
+
+def test_cs108_sem_resultado_vem_nulo(client):
+    body = client.get("/api/candidacies/").json()
+    assert all(c["resultado"] is None for c in body)
+
+
+def test_cs108_resultado_do_ultimo_turno_encerrado(client, session):
+    _resultado(session, 5, 1, "2º turno", True)
+    _resultado(session, 5, 2, "Não eleito", False)
+    _resultado(session, 1, 1, "Eleito", True)
+    _resultado(session, 3, 1, "Não eleito", False, final=False)  # parcial: nao mostra
+    body = {c["id"]: c["resultado"] for c in client.get("/api/candidacies/").json()}
+    assert body[5] == {"turno": 2, "situacao": "Não eleito", "eleito": False, "fora_da_disputa": True}
+    assert body[1]["situacao"] == "Eleito" and body[1]["fora_da_disputa"] is False
+    assert body[3] is None
+
+
+def test_cs108_filtro_segundo_turno(client, session):
+    _resultado(session, 5, 1, "2º turno", True)
+    _resultado(session, 1, 1, "Eleito", True)
+    resp = client.get("/api/candidacies/", params={"resultado": "segundo_turno"})
+    assert [c["id"] for c in resp.json()] == [5]

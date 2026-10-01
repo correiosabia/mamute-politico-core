@@ -10,10 +10,12 @@ from sqlalchemy.orm import Session
 try:
     # Execução como pacote (api.routers.candidacies).
     from ..db.models.candidacy import Candidacy
+    from ..db.models.election_result import CandidacyResult
     from ..dependencies import get_db
 except (ImportError, ValueError):
     # Execução local dentro de api/ sem reconhecimento de pacote.
     from db.models.candidacy import Candidacy
+    from db.models.election_result import CandidacyResult
     from dependencies import get_db
 
 router = APIRouter(prefix="/candidacies", tags=["candidacies"])
@@ -50,8 +52,50 @@ class CandidacyOut(BaseModel):
     # `parliamentarian_id` nao tem parlamentar correspondente na base.
     parliamentarian_id: Optional[int] = None
     match_status: str
+    # Resultado oficial encerrado (CS-106/CS-108); None antes da totalizacao.
+    resultado: Optional["CandidacyResultOut"] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CandidacyResultOut(BaseModel):
+    """Situacao oficial do TSE no turno mais recente ja encerrado."""
+
+    turno: int
+    situacao: Optional[str] = None
+    eleito: Optional[bool] = None
+    # True quando saiu da disputa (nao eleito, suplente, derrotado no 2o turno):
+    # o app mostra "Não eleito" e, para presidente/governador, oferece a
+    # escolha de quem foi ao 2o turno.
+    fora_da_disputa: bool = False
+
+
+SITUACAO_SEGUNDO_TURNO = "2º turno"
+
+
+def _resultados_por_candidatura(db: Session, ids: List[int]) -> dict[int, CandidacyResultOut]:
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(CandidacyResult)
+        .where(
+            CandidacyResult.candidacy_id.in_(ids),
+            CandidacyResult.totalizacao_final.is_(True),
+        )
+        .order_by(asc(CandidacyResult.turno))
+    ).scalars()
+    out: dict[int, CandidacyResultOut] = {}
+    for r in rows:  # turno crescente: o ultimo encerrado prevalece
+        out[int(r.candidacy_id)] = CandidacyResultOut(
+            turno=r.turno,
+            situacao=r.situacao,
+            eleito=r.eleito,
+            fora_da_disputa=r.eleito is False,
+        )
+    return out
+
+
+CandidacyOut.model_rebuild()
 
 
 class OfficeOut(BaseModel):
@@ -149,6 +193,10 @@ def list_candidacies(
     sort_order: Literal["asc", "desc"] = Query(
         default="asc", description="Direção da ordenação."
     ),
+    resultado: Optional[Literal["segundo_turno"]] = Query(
+        default=None,
+        description="segundo_turno: só quem foi ao 2º turno (nova escolha, CS-108).",
+    ),
 ) -> List[CandidacyOut]:
     """Lista paginada de candidaturas, com busca por nome e filtros de UF e cargo."""
     stmt = select(Candidacy).where(Candidacy.election_year == election_year)
@@ -172,6 +220,18 @@ def list_candidacies(
     if office_code is not None:
         stmt = stmt.where(Candidacy.office_code == office_code)
 
+    if resultado == "segundo_turno":
+        stmt = stmt.where(
+            select(CandidacyResult.id)
+            .where(
+                CandidacyResult.candidacy_id == Candidacy.id,
+                CandidacyResult.turno == 1,
+                CandidacyResult.situacao == SITUACAO_SEGUNDO_TURNO,
+                CandidacyResult.totalizacao_final.is_(True),
+            )
+            .exists()
+        )
+
     sortable_columns = {
         "ballot_name": Candidacy.ballot_name,
         "full_name": Candidacy.full_name,
@@ -184,4 +244,11 @@ def list_candidacies(
     # ou perder linha entre páginas.
     stmt = stmt.order_by(asc(Candidacy.id)).offset(offset).limit(limit)
 
-    return [_serialize(c) for c in db.execute(stmt).scalars().all()]
+    candidacies = db.execute(stmt).scalars().all()
+    resultados = _resultados_por_candidatura(db, [int(c.id) for c in candidacies])
+    out = []
+    for c in candidacies:
+        item = _serialize(c)
+        item.resultado = resultados.get(int(c.id))
+        out.append(item)
+    return out
