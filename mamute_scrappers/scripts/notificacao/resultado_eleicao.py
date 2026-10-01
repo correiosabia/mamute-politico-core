@@ -12,11 +12,14 @@ totalizacao encerrada (`tse_result_file.totalizacao_final`). Candidato que
 nao aparece num arquivo encerrado (indeferido, renuncia) entra como "Nao
 consta na totalizacao do TSE" e nao trava o envio.
 
-Liga/desliga: flag `resultado_eleicao` na tabela `feature_flag` (tela de
-Feature Flags do admin), a mesma que mostra o modal no app.
-  off (ou sem linha) -> nao envia nada (a coleta continua gravando);
-  admins            -> so projetos cujo e-mail esta em MAMUTE_ADMIN_EMAILS;
-  all               -> todo mundo.
+Liga/desliga: flag `resultado_eleicao`, com a MESMA regra de
+`api/services/feature_flags.resolve_for` que decide o modal no app, para
+e-mail e modal nunca divergirem:
+  off (ou sem linha) -> ninguem (a coleta continua gravando);
+  admins            -> so admins (MAMUTE_ADMIN_EMAILS);
+  all               -> admins + projetos cujo plano tem a flag `liberado` em
+                       `feature_flag_tier` (a migration cs106 semeia isso nos
+                       planos que ja tem a busca de candidaturas liberada).
 
 Sem duplicata: `election_result_notice` tem unique (projeto, ciclo, turno). A
 linha nasce `pending` antes do envio; vira `sent`, `error` (tenta de novo nas
@@ -82,6 +85,7 @@ class AvisoPronto:
     email: Optional[str]
     nome: str
     turno: int
+    tier_id: Optional[int] = None
     itens: List[dict] = field(default_factory=list)
 
     def payload(self) -> dict:
@@ -128,6 +132,21 @@ def estado_da_flag(session: Session) -> str:
     return (row.state if row else "off") or "off"
 
 
+def planos_liberados(session: Session) -> set[int]:
+    try:
+        rows = session.execute(
+            text(
+                "SELECT tier_id FROM feature_flag_tier "
+                "WHERE flag_key = :k AND mode = 'liberado'"
+            ),
+            {"k": FLAG_KEY},
+        ).all()
+    except Exception:  # noqa: BLE001 — tabela ausente = nenhum plano
+        session.rollback()
+        return set()
+    return {int(r.tier_id) for r in rows}
+
+
 def emails_admin() -> frozenset[str]:
     raw = os.getenv("MAMUTE_ADMIN_EMAILS", "")
     return frozenset(e.strip().lower() for e in raw.split(",") if e.strip())
@@ -162,7 +181,7 @@ def montar_avisos(
     rows = session.execute(
         text(
             f"""
-            SELECT p.id AS projeto_id, p.email, p.nome,
+            SELECT p.id AS projeto_id, p.email, p.nome, p.tier_id,
                    c.id AS candidacy_id, c.ballot_name, c.full_name, c.office,
                    c.office_code, c.state, c.party, c.ballot_number,
                    r.situacao, r.votos, r.percentual
@@ -191,7 +210,13 @@ def montar_avisos(
     for row in rows:
         aviso = por_projeto.setdefault(
             row.projeto_id,
-            AvisoPronto(projeto_id=row.projeto_id, email=row.email, nome=row.nome or "", turno=turno),
+            AvisoPronto(
+                projeto_id=row.projeto_id,
+                email=row.email,
+                nome=row.nome or "",
+                turno=turno,
+                tier_id=row.tier_id,
+            ),
         )
         uf = (row.state or "").lower()
         if row.office_code is None or (int(row.office_code), uf) not in finais:
@@ -340,14 +365,21 @@ def enviar(
         def send(body: str, to: str, subject: str) -> None:
             send_html_email(body, to, subject)
 
-    so_admins = stats.flag == "admins" and not ignorar_flag
     admins = admins if admins is not None else emails_admin()
+    liberados = planos_liberados(session)
+
+    def recebe(aviso: AvisoPronto) -> bool:
+        if ignorar_flag:
+            return True
+        if (aviso.email or "").strip().lower() in admins:
+            return True
+        return stats.flag == "all" and aviso.tier_id is not None and int(aviso.tier_id) in liberados
 
     for turno in turnos:
         prontos, aguardando = montar_avisos(session, ciclo=ciclo, turno=turno, projeto_id=projeto_id)
         stats.aguardando += aguardando
         for aviso in prontos:
-            if so_admins and (aviso.email or "").strip().lower() not in admins:
+            if not recebe(aviso):
                 stats.fora_do_recorte += 1
                 continue
             stats.prontos += 1

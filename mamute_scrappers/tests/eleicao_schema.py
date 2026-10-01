@@ -22,6 +22,9 @@ DDL = [
         candidacy_id INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (projeto_id, candidacy_id))""",
     """CREATE TABLE feature_flag (key TEXT PRIMARY KEY, state TEXT NOT NULL)""",
+    """CREATE TABLE feature_flag_tier (
+        flag_key TEXT NOT NULL, tier_id INTEGER NOT NULL, mode TEXT NOT NULL,
+        PRIMARY KEY (flag_key, tier_id))""",
     """CREATE TABLE tse_result_file (
         id INTEGER PRIMARY KEY AUTOINCREMENT, ciclo TEXT NOT NULL,
         codigo_eleicao INTEGER NOT NULL, turno SMALLINT NOT NULL, uf TEXT NOT NULL,
@@ -104,10 +107,21 @@ def follow(session: Session, projeto_id: int, candidacy_id: int) -> None:
     session.commit()
 
 
-def add_projeto(session: Session, pid: int, email: str | None) -> None:
+def add_projeto(session: Session, pid: int, email: str | None, tier_id: int | None = 1) -> None:
     session.execute(
-        text("INSERT INTO projetos (id, email, nome) VALUES (:id, :email, :nome)"),
-        {"id": pid, "email": email, "nome": f"Pessoa {pid}"},
+        text("INSERT INTO projetos (id, email, nome, tier_id) VALUES (:id, :email, :nome, :tier)"),
+        {"id": pid, "email": email, "nome": f"Pessoa {pid}", "tier": tier_id},
+    )
+    session.commit()
+
+
+def liberar_no_plano(session: Session, tier_id: int = 1) -> None:
+    session.execute(
+        text(
+            "INSERT INTO feature_flag_tier (flag_key, tier_id, mode) "
+            "VALUES ('resultado_eleicao', :t, 'liberado')"
+        ),
+        {"t": tier_id},
     )
     session.commit()
 

@@ -12,6 +12,11 @@ Tres tabelas:
 - `election_result_notice`: um aviso por projeto x ciclo x turno. A unique e
   a trava contra e-mail duplicado; `seen_at` e o "ja vi" do modal no app.
 
+Tambem semeia a flag `resultado_eleicao` como `liberado` nos planos que ja
+tem a busca de candidaturas liberada (mesmo padrao do seed de `emendas` na
+CS-58): em `all`, quem decide e o plano, e assim no dia da eleicao basta
+mudar o estado da flag. O estado em `feature_flag` nao e tocado: nasce off.
+
 Revision ID: cs106a1b2c3d4
 Revises: cs92a1b2c3d4
 """
@@ -93,8 +98,16 @@ def upgrade() -> None:
         """
     )
 
+    op.execute(
+        "insert into feature_flag_tier (flag_key, tier_id, mode) "
+        "select 'resultado_eleicao', tier_id, 'liberado' from feature_flag_tier "
+        "where flag_key = 'busca_candidaturas' and mode = 'liberado' "
+        "on conflict do nothing"
+    )
+
 
 def downgrade() -> None:
+    op.execute("delete from feature_flag_tier where flag_key = 'resultado_eleicao'")
     op.execute("DROP TABLE IF EXISTS election_result_notice")
     op.execute("DROP TABLE IF EXISTS candidacy_result")
     op.execute("DROP TABLE IF EXISTS tse_result_file")

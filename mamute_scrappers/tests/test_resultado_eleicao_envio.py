@@ -7,7 +7,14 @@ from typing import List, Tuple
 
 from sqlalchemy import text
 
-from eleicao_schema import add_candidacy, add_projeto, follow, make_session, set_flag
+from eleicao_schema import (
+    add_candidacy,
+    add_projeto,
+    follow,
+    liberar_no_plano,
+    make_session,
+    set_flag,
+)
 from mamute_scrappers.scripts.notificacao.resultado_eleicao import (
     NAO_CONSTA,
     enviar,
@@ -69,6 +76,7 @@ def _cenario():
     _arquivo(s, 6, "rj", final=False)
     _resultado(s, 1, "2º turno")
     _resultado(s, 2, "Eleito por média")
+    liberar_no_plano(s, 1)  # projetos nascem no plano 1 (eleicao_schema)
     return s
 
 
@@ -107,6 +115,21 @@ def test_flag_admins_so_envia_para_admin() -> None:
     assert stats.fora_do_recorte == 1
 
     stats = enviar(s, ciclo=CICLO, send=mailer, admins=frozenset({"ana@x.com"}))
+    assert [to for to, _ in mailer.enviados] == ["ana@x.com"]
+
+
+def test_flag_all_respeita_o_plano_igual_ao_modal() -> None:
+    """Mesma regra do resolve_for da API: em `all`, quem decide e o plano."""
+    s = _cenario()
+    set_flag(s, "all")
+    s.execute(text("UPDATE projetos SET tier_id = 2 WHERE id = 10"))  # plano sem a flag
+    s.commit()
+    mailer = FakeMailer()
+    stats = enviar(s, ciclo=CICLO, send=mailer, admins=frozenset())
+    assert mailer.enviados == [] and stats.fora_do_recorte == 1
+
+    # admin recebe mesmo em plano sem a flag (previa e conferencia)
+    enviar(s, ciclo=CICLO, send=mailer, admins=frozenset({"ana@x.com"}))
     assert [to for to, _ in mailer.enviados] == ["ana@x.com"]
 
 
