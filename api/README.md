@@ -125,6 +125,41 @@ A coluna é `deferred` no model: nenhuma consulta a lê sem pedir
 existe. Assim, na janela do deploy antes da migration `cs92a1b2c3d4`, as rotas
 de proposição seguem respondendo, com `themes: null`.
 
+## Perfil dos eleitos (CS-107)
+
+`GET /api/admin/elected-profile` (admin; 404 para os outros) devolve, para o
+Senado e a Câmara, o gênero e a cor/raça dos eleitos de 2026, no Brasil e por
+UF. Regras em `services/elected_profile.py`:
+
+| Regra | Por quê |
+|---|---|
+| Eleito = `eleito` **e** situação começando por "Eleito", no 1º turno | o TSE também marca `e = "s"` quem foi ao 2º turno |
+| UF só entra com `tse_result_file.totalizacao_final` | resultado parcial nunca aparece |
+| `brasil` é `null` até as 27 UFs encerrarem | um total do Brasil com UF faltando seria parcial |
+| `valor: null` = candidatura sem o dado na base | não confundir com "NÃO INFORMADO", que é o candidato que não declarou |
+| `percentual: null` = UF sem eleito encontrado na base | nunca mostrar 0% sem base para dividir |
+
+`eleitos_no_tse` vem de `tse_result_file.eleitos_no_arquivo`, que a coleta
+conta no arquivo inteiro (casado ou não com a base). Se for maior que
+`eleitos`, a tela avisa que o percentual não cobre todos os eleitos. `null` =
+arquivo coletado antes da migration `cs107a1b2c3d4`; a coleta baixa esses de
+novo uma vez, e na janela do deploy a rota responde sem a coluna.
+
+Conferência manual de uma UF em produção (ex.: Câmara/BA):
+
+```sql
+SELECT c.gender, c.race, count(*)
+FROM candidacy_result cr
+JOIN candidacy c ON c.id = cr.candidacy_id
+WHERE c.election_year = 2026 AND c.office_code = 6 AND c.state = 'BA'
+  AND cr.turno = 1 AND cr.totalizacao_final AND cr.eleito
+  AND lower(cr.situacao) LIKE 'eleito%'
+GROUP BY 1, 2;
+```
+
+e comparar com os eleitos (`e = "s"` e `st` "Eleito...") do arquivo
+`<base>/ele2026/6259/dados/ba/ba-c0006-e006259-u.json`.
+
 ## Presença no card de Estatísticas (CS-79)
 
 `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve
