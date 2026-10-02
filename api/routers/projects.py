@@ -32,6 +32,7 @@ try:
     from ..db.models.plenary_attendance import PlenaryAttendance
     from ..db.models.proposition import Proposition
     from ..db.models.candidacy import Candidacy
+    from ..db.models.election_result import CandidacyResult
     from ..db.models.project import Projetos, ProjetosCandidacy, ProjetosParliamentarian
     from ..db.models.personal_marks import (
         ParliamentarianTag,
@@ -69,6 +70,7 @@ except (ImportError, ValueError):  # pragma: no cover - caminho alternativo
     from db.models.plenary_attendance import PlenaryAttendance
     from db.models.proposition import Proposition
     from db.models.candidacy import Candidacy
+    from db.models.election_result import CandidacyResult
     from db.models.project import Projetos, ProjetosCandidacy, ProjetosParliamentarian
     from db.models.personal_marks import (
         ParliamentarianTag,
@@ -960,6 +962,29 @@ def _ensure_project_favorite_quota_available(
 CANDIDACY_FAVORITE_DEFAULT_LIMIT = 10  # mesmo default do seed de qtd_candidatos
 
 
+def _candidatura_nao_eleita(candidacy_id_col):
+    """CS-108: candidatura com resultado oficial encerrado e nao eleita.
+
+    Ela continua acompanhada (o app mostra "Não eleito"), mas deixa de ocupar
+    vaga na cota `qtd_candidatos`, para a pessoa poder escolher outro
+    candidato no 2o turno. Para voltar a contar, basta tirar o filtro em
+    `_ensure_candidacy_favorite_quota_available`.
+
+    `eleito` vem do campo `e` do TSE: quem foi ao 2o turno vem "s" no 1o
+    turno, entao so cai aqui quem saiu da disputa (nao eleito, suplente,
+    derrotado no 2o turno).
+    """
+    return (
+        select(CandidacyResult.id)
+        .where(
+            CandidacyResult.candidacy_id == candidacy_id_col,
+            CandidacyResult.totalizacao_final.is_(True),
+            CandidacyResult.eleito.is_(False),
+        )
+        .exists()
+    )
+
+
 def _ensure_candidacy_favorite_quota_available(
     db: Session, project: Projetos
 ) -> None:
@@ -973,7 +998,10 @@ def _ensure_candidacy_favorite_quota_available(
     used = db.execute(
         select(func.count())
         .select_from(ProjetosCandidacy)
-        .where(ProjetosCandidacy.projeto_id == project.id)
+        .where(
+            ProjetosCandidacy.projeto_id == project.id,
+            ~_candidatura_nao_eleita(ProjetosCandidacy.candidacy_id),
+        )
     ).scalar_one()
     if int(used) >= limit:
         raise HTTPException(

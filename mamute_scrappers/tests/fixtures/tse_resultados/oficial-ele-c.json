@@ -1,0 +1,127 @@
+{
+ "dg": "30/09/2026",
+ "hg": "12:31:44",
+ "f": "o",
+ "idg": "866048",
+ "arq": [
+  {
+   "tp": "ft",
+   "dir": "<base>/<ambiente>/<ciclo>/<cd_eleicao>/fotos/<uf>"
+  },
+  {
+   "tp": "cm",
+   "dir": "<base>/<ambiente>/<ciclo>/<cd_eleicao>/config"
+  },
+  {
+   "tp": "e",
+   "dir": "<base>/<ambiente>/<ciclo>/<cd_eleicao>/dados/<uf>"
+  },
+  {
+   "tp": "cs",
+   "dir": "<base>/<ambiente>/<ciclo>/arquivo-urna/<cd_pleito>/config/<uf>"
+  },
+  {
+   "tp": "ab",
+   "dir": "<base>/<ambiente>/<ciclo>/<cd_eleicao>/dados/<uf>"
+  },
+  {
+   "tp": "u",
+   "dir": "<base>/<ambiente>/<ciclo>/<cd_eleicao>/dados/<uf>"
+  },
+  {
+   "tp": "aux",
+   "dir": "<base>/<ambiente>/<ciclo>/arquivo-urna/<cd_pleito>/dados/<uf>/<municipio>/<zona>/<secao>"
+  }
+ ],
+ "pl": [
+  {
+   "cd": "3220",
+   "cdpr": "1219",
+   "c": "ele2026",
+   "dt": "04/10/2026",
+   "dtlim": "04/10/2034",
+   "e": [
+    {
+     "cd": "6257",
+     "cdt2": "6258",
+     "sqele": "20322002026",
+     "nm": "Eleição Ordinária Federal - 2026 1º Turno",
+     "t": "1",
+     "tp": "8",
+     "abr": [
+      {
+       "cd": "br",
+       "cp": [
+        {
+         "cd": "1",
+         "ds": "Presidente",
+         "tp": "1"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "cd": "6259",
+     "cdt2": "6260",
+     "sqele": "20322002026",
+     "nm": "Eleição Ordinária Estadual - 2026 1º Turno",
+     "t": "1",
+     "tp": "1",
+     "abr": [
+      {
+       "cd": "br",
+       "cp": [
+        {
+         "cd": "3",
+         "ds": "Governador",
+         "tp": "1"
+        },
+        {
+         "cd": "5",
+         "ds": "Senador",
+         "tp": "1"
+        },
+        {
+         "cd": "6",
+         "ds": "Deputado Federal",
+         "tp": "2"
+        },
+        {
+         "cd": "7",
+         "ds": "Deputado Estadual",
+         "tp": "2"
+        },
+        {
+         "cd": "8",
+         "ds": "Deputado Distrital",
+         "tp": "2"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "cd": "6261",
+     "cdt2": "",
+     "sqele": "20322002026",
+     "nm": "Eleição Ordinária Municipal - 2026 - 04/10/2026 1º Turno",
+     "t": "1",
+     "tp": "3",
+     "abr": [
+      {
+       "cd": "br",
+       "cp": [
+        {
+         "cd": "25",
+         "ds": "Conselheiro Distrital",
+         "tp": "1"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

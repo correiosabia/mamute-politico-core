@@ -85,6 +85,30 @@ def _make_session() -> Session:
         )
         conn.exec_driver_sql(
             """
+            create table candidacy_result (
+                id integer primary key, candidacy_id integer not null,
+                turno integer not null, codigo_eleicao integer not null,
+                situacao text, eleito boolean, votos integer, percentual numeric,
+                destinacao_voto text, totalizacao_final boolean not null default 0,
+                tse_atualizado_em datetime, coletado_em datetime,
+                unique (candidacy_id, turno)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            """
+            create table election_result_notice (
+                id integer primary key, projeto_id integer not null,
+                ciclo text not null, turno integer not null, payload json not null,
+                email_status text not null default 'pending',
+                tentativas integer not null default 0, ultimo_erro text,
+                created_at datetime, sent_at datetime, seen_at datetime,
+                unique (projeto_id, ciclo, turno)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            """
             create table project_mamutometro (
                 id integer primary key, projeto_id integer not null,
                 parliamentarian_id integer not null, level integer not null,
@@ -208,6 +232,100 @@ def test_cota_do_plano_barra_o_decimo_primeiro(db: Session) -> None:
     barrado = _acompanhar(client, 11)
     assert barrado.status_code == 403
     assert "10/10" in barrado.json()["detail"]
+
+
+def _resultado(db: Session, candidacy_id: int, *, eleito: bool, situacao: str, final: bool = True) -> None:
+    db.execute(
+        text(
+            "insert into candidacy_result (candidacy_id, turno, codigo_eleicao, situacao, "
+            "eleito, totalizacao_final) values (:c, 1, 6259, :s, :e, :f)"
+        ),
+        {"c": candidacy_id, "s": situacao, "e": eleito, "f": final},
+    )
+    db.commit()
+
+
+def test_cs108_nao_eleito_libera_vaga_na_cota(db: Session) -> None:
+    """Candidato que saiu da disputa continua acompanhado, mas nao ocupa vaga."""
+    client = _client(db)
+    for cid in range(1, 11):
+        assert _acompanhar(client, cid).status_code == 201
+    assert _acompanhar(client, 11).status_code == 403
+
+    _resultado(db, 1, eleito=False, situacao="Não eleito")
+    _resultado(db, 2, eleito=True, situacao="2º turno")  # segue na disputa: conta
+    assert _acompanhar(client, 11).status_code == 201
+    assert _acompanhar(client, 12).status_code == 403
+    # o nao eleito continua na lista de acompanhados
+    ids = [f["candidacy_id"] for f in client.get("/api/projects/me/candidacy-favorites").json()]
+    assert 1 in ids and 11 in ids
+
+
+def test_cs108_resultado_parcial_nao_libera_vaga(db: Session) -> None:
+    client = _client(db)
+    for cid in range(1, 11):
+        _acompanhar(client, cid)
+    _resultado(db, 1, eleito=False, situacao="Não eleito", final=False)
+    assert _acompanhar(client, 11).status_code == 403
+
+
+def _aviso(db: Session, projeto_id: int, *, turno: int = 1, status: str = "sent") -> int:
+    db.execute(
+        text(
+            "insert into election_result_notice (projeto_id, ciclo, turno, payload, email_status) "
+            "values (:p, 'ele2026', :t, :payload, :s)"
+        ),
+        {
+            "p": projeto_id,
+            "t": turno,
+            "payload": '{"turno": %d, "itens": [{"nome": "FULANO", "situacao": "Eleito"}]}' % turno,
+            "s": status,
+        },
+    )
+    db.commit()
+    return db.execute(text("select max(id) from election_result_notice")).scalar_one()
+
+
+def test_cs106_sem_aviso_devolve_204(db: Session) -> None:
+    client = _client(db)
+    assert client.get("/api/projects/me/election-result-notice").status_code == 204
+
+
+def test_cs106_aviso_pendente_de_envio_nao_aparece(db: Session) -> None:
+    _aviso(db, 10, status="pending")
+    client = _client(db)
+    assert client.get("/api/projects/me/election-result-notice").status_code == 204
+
+
+def test_cs106_aviso_aparece_ate_ser_visto(db: Session) -> None:
+    aviso_id = _aviso(db, 10)
+    _aviso(db, 20)
+    client = _client(db)
+    resposta = client.get("/api/projects/me/election-result-notice")
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["id"] == aviso_id and corpo["turno"] == 1
+    assert corpo["payload"]["itens"][0]["situacao"] == "Eleito"
+
+    assert client.post(f"/api/projects/me/election-result-notice/{aviso_id}/seen").status_code == 204
+    assert client.get("/api/projects/me/election-result-notice").status_code == 204
+    # marcar de novo e idempotente
+    assert client.post(f"/api/projects/me/election-result-notice/{aviso_id}/seen").status_code == 204
+
+
+def test_cs106_segundo_turno_vem_antes(db: Session) -> None:
+    _aviso(db, 10, turno=1)
+    segundo = _aviso(db, 10, turno=2)
+    client = _client(db)
+    assert client.get("/api/projects/me/election-result-notice").json()["id"] == segundo
+
+
+def test_cs106_nao_marca_aviso_de_outra_pessoa(db: Session) -> None:
+    alheio = _aviso(db, 20)
+    client = _client(db)
+    assert client.post(f"/api/projects/me/election-result-notice/{alheio}/seen").status_code == 404
+    outro = _client(db, token_email="outro@example.com")
+    assert outro.get("/api/projects/me/election-result-notice").json()["id"] == alheio
 
 
 def test_metrics_candidacy_favorites_agrega_por_cargo_e_uf(db: Session) -> None:

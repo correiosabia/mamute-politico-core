@@ -1,0 +1,572 @@
+{
+ "ele": "21272",
+ "t": "1",
+ "f": "s",
+ "sup": "n",
+ "tpabr": "uf",
+ "cdabr": "sp",
+ "dg": "29/09/2026",
+ "hg": "16:44:53",
+ "idg": "176945389",
+ "dt": "29/09/2026",
+ "ht": "16:44:38",
+ "dv": "s",
+ "tf": "s",
+ "and": "f",
+ "esae": "n",
+ "carg": [
+  {
+   "cd": "3",
+   "nmn": "Governador",
+   "nmm": "Governador",
+   "nmf": "Governadora",
+   "nv": "1",
+   "fed": [
+    {
+     "n": "100",
+     "sg": "F 9996",
+     "nm": "FEDERAÇÃO 9996",
+     "com": "F 9996",
+     "npar": [
+      "69",
+      "84"
+     ]
+    },
+    {
+     "n": "101",
+     "sg": "F 9995",
+     "nm": "FEDERAÇÃO 9995",
+     "com": "F 9995",
+     "npar": [
+      "60",
+      "82",
+      "87"
+     ]
+    },
+    {
+     "n": "102",
+     "sg": "Federacao teste para string longa especiais 99!@#$\"TSE\"",
+     "nm": "Federacao teste para string longa especiais 99!@#$\"TSE\"",
+     "com": "Federacao teste para string longa especiais 99!@#$\"TSE\"",
+     "npar": [
+      "64",
+      "85"
+     ]
+    }
+   ],
+   "agr": [
+    {
+     "n": "60141306",
+     "nm": "PARTIDO 9996",
+     "tp": "i",
+     "com": "P 9996",
+     "vag": "0",
+     "par": [
+      {
+       "n": "68",
+       "sg": "P 9996",
+       "nm": "PARTIDO 9996",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "2187757",
+       "cand": [
+        {
+         "n": "68",
+         "sqcand": "41627170",
+         "nm": "CANDIDATO 8570",
+         "nmu": "CANDIDATO 8570",
+         "dt": "05/12/1971",
+         "dvt": "Anulado sub judice",
+         "seq": "1",
+         "e": "s",
+         "st": "2º turno",
+         "vap": "2187757",
+         "pvap": "8,39",
+         "pvapn": "8,390146328",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627171",
+           "nm": "CANDIDATO 8569",
+           "nmu": "CANDIDATO 8569",
+           "sgp": "P 9996"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141290",
+     "nm": "PARTIDO 9964",
+     "tp": "i",
+     "com": "P 9964",
+     "vag": "0",
+     "par": [
+      {
+       "n": "86",
+       "sg": "P 9964",
+       "nm": "PARTIDO 9964",
+       "nfed": "",
+       "tvtn": "2157311",
+       "tvan": "2157311",
+       "cand": [
+        {
+         "n": "86",
+         "sqcand": "41627384",
+         "nm": "CANDIDATO 8558",
+         "nmu": "CANDIDATO 8558",
+         "dt": "23/05/1929",
+         "dvt": "Válido",
+         "seq": "12",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2157311",
+         "pvap": "8,27",
+         "pvapn": "8,273384551",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627385",
+           "nm": "CANDIDATO 8557",
+           "nmu": "CANDIDATO 8557",
+           "sgp": "P 9964"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141324",
+     "nm": "PARTIDO 9969",
+     "tp": "i",
+     "com": "P 9969",
+     "vag": "0",
+     "par": [
+      {
+       "n": "73",
+       "sg": "P 9969",
+       "nm": "PARTIDO 9969",
+       "nfed": "",
+       "tvtn": "2166898",
+       "tvan": "2166898",
+       "cand": [
+        {
+         "n": "73",
+         "sqcand": "41627884",
+         "nm": "CANDIDATO 8566",
+         "nmu": "CANDIDATO 8566",
+         "dt": "21/10/1997",
+         "dvt": "Válido",
+         "seq": "9",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2166898",
+         "pvap": "8,31",
+         "pvapn": "8,310151126",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627885",
+           "nm": "CANDIDATO 8565",
+           "nmu": "CANDIDATO 8565",
+           "sgp": "P 9969"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141261",
+     "nm": "PARTIDO 9998",
+     "tp": "i",
+     "com": "P 9998",
+     "vag": "0",
+     "par": [
+      {
+       "n": "57",
+       "sg": "P 9998",
+       "nm": "PARTIDO 9998",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "2182879",
+       "cand": [
+        {
+         "n": "57",
+         "sqcand": "41627742",
+         "nm": "CANDIDATO 8578",
+         "nmu": "CANDIDATO 8578",
+         "dt": "04/06/1981",
+         "dvt": "Anulado",
+         "seq": "3",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2182879",
+         "pvap": "8,37",
+         "pvapn": "8,371438979",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627743",
+           "nm": "CANDIDATO 8577",
+           "nmu": "CANDIDATO 8577",
+           "sgp": "P 9998"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141291",
+     "nm": "Federacao teste para string longa especiais 99!@#$\"TSE\"",
+     "tp": "f",
+     "com": "P 9966 / P 9991",
+     "tvtn": "2175859",
+     "tvan": "2175859",
+     "vag": "0",
+     "par": [
+      {
+       "n": "85",
+       "sg": "P 9991",
+       "nm": "PARTIDO 9991",
+       "nfed": "102",
+       "tvtn": "2175859",
+       "tvan": "2175859",
+       "cand": [
+        {
+         "n": "85",
+         "sqcand": "41627386",
+         "nm": "CANDIDATO 8560",
+         "nmu": "CANDIDATO 8560",
+         "dt": "16/09/1970",
+         "dvt": "Válido",
+         "seq": "5",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2175859",
+         "pvap": "8,34",
+         "pvapn": "8,344516963",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627387",
+           "nm": "CANDIDATO 8559",
+           "nmu": "CANDIDATO 8559",
+           "sgp": "P 9991"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141223",
+     "nm": "PARTIDO 9974",
+     "tp": "i",
+     "com": "P 9974",
+     "vag": "0",
+     "par": [
+      {
+       "n": "58",
+       "sg": "P 9974",
+       "nm": "PARTIDO 9974",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "2165757",
+       "cand": [
+        {
+         "n": "58",
+         "sqcand": "41627160",
+         "nm": "CANDIDATO 8576",
+         "nmu": "CANDIDATO 8576",
+         "dt": "11/07/1994",
+         "dvt": "Anulado sub judice",
+         "seq": "10",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2165757",
+         "pvap": "8,31",
+         "pvapn": "8,305775340",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627161",
+           "nm": "CANDIDATO 8575",
+           "nmu": "CANDIDATO 8575",
+           "sgp": "P 9974"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141276",
+     "nm": "FEDERAÇÃO 9996",
+     "tp": "f",
+     "com": "P 9985 / P 9993",
+     "tvtn": "2172435",
+     "tvan": "2172435",
+     "vag": "0",
+     "par": [
+      {
+       "n": "69",
+       "sg": "P 9985",
+       "nm": "PARTIDO 9985",
+       "nfed": "100",
+       "tvtn": "2172435",
+       "tvan": "2172435",
+       "cand": [
+        {
+         "n": "69",
+         "sqcand": "41627478",
+         "nm": "CANDIDATO 8568",
+         "nmu": "CANDIDATO 8568",
+         "dt": "04/03/1977",
+         "dvt": "Válido",
+         "seq": "6",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2172435",
+         "pvap": "8,33",
+         "pvapn": "8,331385770",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627479",
+           "nm": "CANDIDATO 8567",
+           "nmu": "CANDIDATO 8567",
+           "sgp": "P 9985"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141279",
+     "nm": "PARTIDO 9973",
+     "tp": "i",
+     "com": "P 9973",
+     "vag": "0",
+     "par": [
+      {
+       "n": "88",
+       "sg": "P 9973",
+       "nm": "PARTIDO 9973",
+       "nfed": "",
+       "tvtn": "2179932",
+       "tvan": "2179932",
+       "cand": [
+        {
+         "n": "88",
+         "sqcand": "41627482",
+         "nm": "Candidato teste para string longa e caracteres especiais 123!@#$\"TSE\"",
+         "nmu": "Candidato string 1234!@#$\"TSE\"",
+         "dt": "25/09/1970",
+         "dvt": "Válido",
+         "seq": "4",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2179932",
+         "pvap": "8,36",
+         "pvapn": "8,360137101",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627483",
+           "nm": "Candidato teste para string longa e caracteres especiais 123!@#$\"TSE\"",
+           "nmu": "Candidato string 1234!@#$\"TSE\"",
+           "sgp": "P 9973"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141289",
+     "nm": "FEDERAÇÃO 9995",
+     "tp": "f",
+     "com": "P 9984 / P 9992 / P 9999",
+     "tvtn": "2165455",
+     "tvan": "2165455",
+     "vag": "0",
+     "par": [
+      {
+       "n": "60",
+       "sg": "P 9992",
+       "nm": "PARTIDO 9992",
+       "nfed": "101",
+       "tvtn": "2165455",
+       "tvan": "2165455",
+       "cand": [
+        {
+         "n": "60",
+         "sqcand": "41627382",
+         "nm": "CANDIDATO 8574",
+         "nmu": "CANDIDATO 8574",
+         "dt": "23/07/1990",
+         "dvt": "Válido",
+         "seq": "11",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2165455",
+         "pvap": "8,30",
+         "pvapn": "8,304617156",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627383",
+           "nm": "CANDIDATO 8573",
+           "nmu": "CANDIDATO 8573",
+           "sgp": "P 9992"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141287",
+     "nm": "COLIGACAO 9996",
+     "tp": "c",
+     "com": "P 9979** / P 9990 / P 9971",
+     "tvtn": "2168366",
+     "tvan": "2168366",
+     "par": [
+      {
+       "n": "61",
+       "sg": "P 9979**",
+       "nm": "PARTIDO 9979",
+       "nfed": "",
+       "tvtn": "2168366",
+       "tvan": "2168366",
+       "cand": [
+        {
+         "n": "61",
+         "sqcand": "41627378",
+         "nm": "CANDIDATO 8572",
+         "nmu": "CANDIDATO 8572",
+         "dt": "13/12/1950",
+         "dvt": "Válido",
+         "seq": "8",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2168366",
+         "pvap": "8,32",
+         "pvapn": "8,315780972",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627379",
+           "nm": "CANDIDATO 8571",
+           "nmu": "CANDIDATO 8571",
+           "sgp": "P 9979"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141288",
+     "nm": "PARTIDO 9988",
+     "tp": "i",
+     "com": "P 9988",
+     "vag": "0",
+     "par": [
+      {
+       "n": "75",
+       "sg": "P 9988",
+       "nm": "PARTIDO 9988",
+       "nfed": "",
+       "tvtn": "2183180",
+       "tvan": "2183180",
+       "cand": [
+        {
+         "n": "75",
+         "sqcand": "41627380",
+         "nm": "CANDIDATO 8564",
+         "nmu": "CANDIDATO 8564",
+         "dt": "25/07/2001",
+         "dvt": "Válido",
+         "seq": "2",
+         "e": "s",
+         "st": "2º turno",
+         "vap": "2183180",
+         "pvap": "8,37",
+         "pvapn": "8,372593327",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627381",
+           "nm": "CANDIDATO 8563",
+           "nmu": "CANDIDATO 8563",
+           "sgp": "P 9988"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "n": "60141305",
+     "nm": "PARTIDO 9977",
+     "tp": "i",
+     "com": "P 9977",
+     "vag": "0",
+     "par": [
+      {
+       "n": "81",
+       "sg": "P 9977",
+       "nm": "PARTIDO 9977",
+       "nfed": "",
+       "tvtn": "0",
+       "tvan": "2169485",
+       "cand": [
+        {
+         "n": "81",
+         "sqcand": "41627168",
+         "nm": "CANDIDATO 8562",
+         "nmu": "CANDIDATO 8562",
+         "dt": "28/09/1950",
+         "dvt": "Anulado sub judice",
+         "seq": "7",
+         "e": "n",
+         "st": "Não eleito",
+         "vap": "2169485",
+         "pvap": "8,32",
+         "pvapn": "8,320072387",
+         "vs": [
+          {
+           "tp": "v",
+           "sqcand": "41627169",
+           "nm": "CANDIDATO 8561",
+           "nmu": "CANDIDATO 8561",
+           "sgp": "P 9977"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

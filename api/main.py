@@ -17,6 +17,7 @@ try:
         analysis,
         authors_proposition,
         candidacies,
+        election_results,
         electoral_history,
         events,
         expenses,
@@ -40,6 +41,7 @@ except ImportError:
         analysis,
         authors_proposition,
         candidacies,
+        election_results,
         electoral_history,
         events,
         expenses,
@@ -130,6 +132,7 @@ def create_app() -> FastAPI:
     api_router.include_router(amendments.router, dependencies=auth_dependencies)
     api_router.include_router(expenses.router, dependencies=auth_dependencies)
     api_router.include_router(candidacies.router, dependencies=auth_dependencies)
+    api_router.include_router(election_results.router, dependencies=auth_dependencies)
     api_router.include_router(electoral_history.router, dependencies=auth_dependencies)
     api_router.include_router(roll_call_votes.router, dependencies=auth_dependencies)
     api_router.include_router(speeches_transcripts.router, dependencies=auth_dependencies)
