@@ -8,7 +8,7 @@ from decimal import Decimal
 from datetime import date, datetime
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from requests import RequestException
 from sqlalchemy import func, select
@@ -465,14 +465,19 @@ def metrics_milestones_create_route(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
-@router.delete("/metrics/milestones/{marco_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/metrics/milestones/{marco_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 def metrics_milestones_delete_route(
     marco_id: int,
     db: Session = Depends(get_db),
     _admin: str = Depends(require_ghost_admin),
-) -> None:
+) -> Response:
     if not metric_milestones.apagar(db, marco_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Marco não encontrado.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/metrics/users")
