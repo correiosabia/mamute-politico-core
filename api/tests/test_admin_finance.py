@@ -123,10 +123,15 @@ def test_crescimento_reconstroi_semanas_pelo_historico() -> None:
     semanas = crescimento(_sincronizado(), hoje=date(2026, 7, 26))["semanas"]
     por_semana = {s["semana"]: s for s in semanas}
     # semana que fecha em 05/07: free + pagante de 80%
-    assert por_semana["2026-07-05"] == {
-        "semana": "2026-07-05", "gerais": 2, "com_plano": 1, "pagantes": 1, "isentos": 0,
-        "receita_real": 10.0, "receita_tabela": 50.0,
+    primeira = por_semana["2026-07-05"]
+    assert {k: primeira[k] for k in ("gerais", "com_plano", "pagantes", "isentos", "receita_real", "receita_tabela")} == {
+        "gerais": 2, "com_plano": 1, "pagantes": 1, "isentos": 0, "receita_real": 10.0, "receita_tabela": 50.0,
     }
+    # entradas da semana: 2 membros, 1 assinatura (a cancelada sem evento de fim fica fora)
+    assert (primeira["membros_entradas"], primeira["plano_entradas"], primeira["plano_saidas"]) == (2, 1, 0)
+    assert primeira["variacao_gerais"] is None  # sem semana anterior
+    segunda = por_semana["2026-07-12"]
+    assert segunda["variacao_gerais"] == 50.0  # 2 -> 3 membros
     # cancelamento da s9 (assinatura do free) nunca conta: sem evento, fica fora
     # semana que fecha em 26/07: todos; Fellowship e cortesia isentos
     ultima = por_semana["2026-07-26"]
@@ -194,3 +199,40 @@ def test_taxas_da_stripe_somam_o_mes_e_avisam_sem_chave() -> None:
     r = taxas_do_mes(chave="rk_test", http_get=http_get, agora=datetime(2026, 10, 3, tzinfo=timezone.utc))
     assert r == {"disponivel": True, "recebido_bruto": 60.0, "taxas": 3.18, "taxas_percentual": 5.3, "cobrancas": 2}
     assert chamadas[1]["starting_after"] == "t1"
+
+
+def test_marcos_criar_listar_apagar_e_validar() -> None:
+    import pytest
+
+    from api.services import metric_milestones
+
+    db = _sessao()
+    db.execute(text(
+        "create table metrica_marco (id integer primary key autoincrement, data date not null, "
+        "titulo text not null, descricao text, criado_por text, criado_em timestamp default current_timestamp)"
+    ))
+    db.commit()
+    marco = metric_milestones.criar(
+        db, data=date(2026, 9, 28), titulo="  Início da Fellowship ", descricao="15 jornalistas", criado_por="a@x.com"
+    )
+    assert marco["titulo"] == "Início da Fellowship" and marco["data"] == "2026-09-28"
+    metric_milestones.criar(db, data=date(2026, 8, 12), titulo="Mamute 80/90", descricao=None, criado_por=None)
+    assert [m["titulo"] for m in metric_milestones.listar(db)] == ["Mamute 80/90", "Início da Fellowship"]
+    with pytest.raises(ValueError):
+        metric_milestones.criar(db, data=date(2026, 9, 1), titulo="  ", descricao=None, criado_por=None)
+    assert metric_milestones.apagar(db, marco["id"]) is True
+    assert metric_milestones.apagar(db, marco["id"]) is False
+
+
+def test_crescimento_mensal_e_saida_de_membro_apagado() -> None:
+    db = _sincronizado()
+    db.execute(text("create table projetos (id integer primary key, deleted_at timestamp)"))
+    db.execute(text("insert into projetos (id, deleted_at) values (1, '2026-07-15 12:00:00'), (2, null)"))
+    db.commit()
+    meses = crescimento(db, hoje=date(2026, 8, 10), granularidade="mes")["periodos"]
+    assert [m["periodo"] for m in meses] == ["2026-07-31", "2026-08-31"]
+    julho, agosto = meses
+    assert (julho["membros_entradas"], julho["membros_saidas"], julho["plano_entradas"]) == (5, 1, 4)
+    assert julho["com_plano"] == 4 and julho["parcial"] is False
+    assert agosto["parcial"] is True and agosto["membros_entradas"] == 0
+    assert agosto["variacao_com_plano"] == 0.0

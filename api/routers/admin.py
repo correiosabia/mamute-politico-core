@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from decimal import Decimal
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -35,6 +35,7 @@ try:
     from ..services.admin_finance import crescimento, resumo_financeiro
     from ..services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
     from ..services.stripe_fees import taxas_do_mes
+    from ..services import metric_milestones
     from ..services.openrouter_credits import credits_overview
     from ..services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -91,6 +92,7 @@ except ImportError:  # execução dentro de api/
     from services.admin_finance import crescimento, resumo_financeiro
     from services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
     from services.stripe_fees import taxas_do_mes
+    from services import metric_milestones
     from services.openrouter_credits import credits_overview
     from services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -417,10 +419,11 @@ def metrics_finance_route(
 
 @router.get("/metrics/growth")
 def metrics_growth_route(
+    granularidade: Literal["semana", "mes"] = "semana",
     db: Session = Depends(get_db),
     _admin: str = Depends(require_ghost_admin),
 ) -> dict[str, Any]:
-    return {**crescimento(db), "sync": ultimo_sync(db)}
+    return {**crescimento(db, granularidade=granularidade), "sync": ultimo_sync(db)}
 
 
 @router.post("/metrics/finance/sync")
@@ -432,6 +435,44 @@ def metrics_finance_sync_route(
     if not resultado.get("ok"):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=resultado.get("erro"))
     return {**resultado, "sync": ultimo_sync(db)}
+
+
+class MarcoIn(BaseModel):
+    data: date
+    titulo: str
+    descricao: Optional[str] = None
+
+
+@router.get("/metrics/milestones")
+def metrics_milestones_route(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    return {"marcos": metric_milestones.listar(db)}
+
+
+@router.post("/metrics/milestones", status_code=status.HTTP_201_CREATED)
+def metrics_milestones_create_route(
+    payload: MarcoIn,
+    db: Session = Depends(get_db),
+    admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    try:
+        return metric_milestones.criar(
+            db, data=payload.data, titulo=payload.titulo, descricao=payload.descricao, criado_por=admin
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.delete("/metrics/milestones/{marco_id}", status_code=status.HTTP_204_NO_CONTENT)
+def metrics_milestones_delete_route(
+    marco_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> None:
+    if not metric_milestones.apagar(db, marco_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Marco não encontrado.")
 
 
 @router.get("/metrics/users")

@@ -29,6 +29,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
+from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -216,8 +217,46 @@ def _fim_da_semana(d: date) -> date:
     return d + timedelta(days=6 - d.weekday())  # domingo
 
 
-def crescimento(db: Session, *, hoje: Optional[date] = None) -> dict[str, Any]:
-    """Séries semanais (fechamento de domingo) de usuários e receita.
+def _fim_do_mes(d: date) -> date:
+    proximo = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
+    return proximo - timedelta(days=1)
+
+
+def _fins_de_periodo(primeira: date, hoje: date, granularidade: str) -> list[date]:
+    fins = []
+    if granularidade == "mes":
+        atual = _fim_do_mes(primeira)
+        while atual <= _fim_do_mes(hoje):
+            fins.append(atual)
+            atual = _fim_do_mes(atual + timedelta(days=1))
+    else:
+        atual = _fim_da_semana(primeira)
+        while atual <= _fim_da_semana(hoje):
+            fins.append(atual)
+            atual += timedelta(days=7)
+    return fins
+
+
+def _variacao(atual: float, anterior: Optional[float]) -> Optional[float]:
+    if anterior is None or anterior == 0:
+        return None
+    return round(100 * (atual - anterior) / anterior, 1)
+
+
+def _saidas_de_membros(db: Session) -> list[datetime]:
+    """Membros apagados (o Ghost apaga de vez; o webhook marca `projetos.deleted_at`)."""
+    if not sqlalchemy_inspect(db.connection()).has_table("projetos"):
+        return []
+    return [
+        _utc(r.deleted_at)
+        for r in db.execute(text("SELECT deleted_at FROM projetos WHERE deleted_at IS NOT NULL")).all()
+    ]
+
+
+def crescimento(
+    db: Session, *, hoje: Optional[date] = None, granularidade: str = "semana"
+) -> dict[str, Any]:
+    """Séries por semana (fechamento de domingo) ou mês, com entradas e saídas.
 
     Reconstrução pelo histórico do Ghost:
     - assinatura ativa na data = começou até ela e não tinha sido cancelada
@@ -228,16 +267,24 @@ def crescimento(db: Session, *, hoje: Optional[date] = None) -> dict[str, Any]:
     - valor real na data = mesma regra do resumo (`_preco_real`), com a oferta
       valendo ou não naquela data;
     - receita de tabela usa o preço de tabela atual de cada assinatura/plano
-      (o Ghost não guarda histórico de preço de tabela).
+      (o Ghost não guarda histórico de preço de tabela);
+    - saída de membro = exclusão registrada em `projetos.deleted_at` (o Ghost
+      não guarda membro apagado). Membro apagado também some de "gerais" no
+      passado, porque só os atuais têm data de criação.
+    O período atual vai até hoje (parcial). `variacao_*` = % sobre o período
+    anterior.
     """
     hoje = hoje or datetime.now(timezone.utc).date()
     membros = db.execute(
         text("SELECT id, status, plano_valor_mensal_centavos, criado_em FROM ghost_membro")
     ).all()
     if not membros:
-        return {"semanas": []}
+        return {"granularidade": granularidade, "periodos": [], "semanas": []}
     status_ev = db.execute(
-        text("SELECT membro_id, para_status, criado_em FROM ghost_membro_status_evento ORDER BY criado_em, id")
+        text(
+            "SELECT membro_id, de_status, para_status, criado_em FROM ghost_membro_status_evento "
+            "ORDER BY criado_em, id"
+        )
     ).all()
     assinaturas = db.execute(
         text(
@@ -257,34 +304,47 @@ def crescimento(db: Session, *, hoje: Optional[date] = None) -> dict[str, Any]:
         )
     ).all():
         fins.setdefault(e.assinatura_id, _utc(e.criado_em))
+    saidas_membros = _saidas_de_membros(db)
 
     criado = {m.id: _utc(m.criado_em) for m in membros}
     plano_por_membro = {m.id: float(m.plano_valor_mensal_centavos or 0) for m in membros}
     historico: dict[str, list[tuple[datetime, str]]] = defaultdict(list)
+    entradas_cortesia: list[datetime] = []
+    saidas_cortesia: list[datetime] = []
     for e in status_ev:
-        historico[e.membro_id].append((_utc(e.criado_em), e.para_status))
+        quando = _utc(e.criado_em)
+        historico[e.membro_id].append((quando, e.para_status))
+        if e.para_status == "comped" and e.de_status != "comped":
+            entradas_cortesia.append(quando)
+        elif e.de_status == "comped" and e.para_status != "comped":
+            saidas_cortesia.append(quando)
 
-    periodos = []
+    periodos_assinatura = []
     for a in assinaturas:
         inicio = _utc(a.inicio)
         if inicio is None:
             continue
         ativa_hoje = a.status in STATUS_ATIVOS
-        fim = None if ativa_hoje else fins.get(a.id, inicio)
-        periodos.append((a, inicio, fim, ativa_hoje))
+        fim = None if ativa_hoje else fins.get(a.id)
+        if not ativa_hoje and fim is None:
+            # Encerrada sem evento de fim: não dá para saber quando valeu, fica fora.
+            continue
+        periodos_assinatura.append((a, inicio, fim, ativa_hoje))
+
+    def no_periodo(quando: Optional[datetime], de: Optional[datetime], ate: datetime) -> bool:
+        return quando is not None and quando <= ate and (de is None or quando > de)
 
     primeira = min(c for c in criado.values() if c is not None).date()
-    semana = _fim_da_semana(primeira)
-    fim_series = _fim_da_semana(hoje)
-    pontos = []
-    while semana <= fim_series:
-        corte = datetime.combine(min(semana, hoje), datetime.max.time(), tzinfo=timezone.utc)
+    pontos: list[dict[str, Any]] = []
+    corte_anterior: Optional[datetime] = None
+    for fim_periodo in _fins_de_periodo(primeira, hoje, granularidade):
+        corte = datetime.combine(min(fim_periodo, hoje), datetime.max.time(), tzinfo=timezone.utc)
         gerais = sum(1 for c in criado.values() if c is not None and c <= corte)
 
         com_assinatura: set[str] = set()
         pagantes: set[str] = set()
         real = tabela = 0.0
-        for a, inicio, fim, ativa_hoje in periodos:
+        for a, inicio, fim, ativa_hoje in periodos_assinatura:
             if inicio > corte or (fim is not None and fim <= corte):
                 continue
             membro = a.membro_id or a.id
@@ -310,19 +370,29 @@ def crescimento(db: Session, *, hoje: Optional[date] = None) -> dict[str, Any]:
                 tabela += plano_por_membro.get(membro_id, 0.0)
 
         com_plano = len(com_assinatura) + cortesias
-        pontos.append(
-            {
-                "semana": semana.isoformat(),
-                "gerais": gerais,
-                "com_plano": com_plano,
-                "pagantes": len(pagantes),
-                "isentos": com_plano - len(pagantes),
-                "receita_real": _reais(real),
-                "receita_tabela": _reais(tabela),
-            }
-        )
-        semana += timedelta(days=7)
-    return {"semanas": pontos}
+        anterior = pontos[-1] if pontos else None
+        ponto = {
+            "periodo": fim_periodo.isoformat(),
+            "semana": fim_periodo.isoformat(),  # compatibilidade com a primeira versão da tela
+            "parcial": fim_periodo > hoje,
+            "gerais": gerais,
+            "com_plano": com_plano,
+            "pagantes": len(pagantes),
+            "isentos": com_plano - len(pagantes),
+            "receita_real": _reais(real),
+            "receita_tabela": _reais(tabela),
+            "membros_entradas": sum(1 for c in criado.values() if no_periodo(c, corte_anterior, corte)),
+            "membros_saidas": sum(1 for d in saidas_membros if no_periodo(d, corte_anterior, corte)),
+            "plano_entradas": sum(1 for _a, ini, _f, _h in periodos_assinatura if no_periodo(ini, corte_anterior, corte))
+            + sum(1 for d in entradas_cortesia if no_periodo(d, corte_anterior, corte)),
+            "plano_saidas": sum(1 for _a, _i, f, _h in periodos_assinatura if no_periodo(f, corte_anterior, corte))
+            + sum(1 for d in saidas_cortesia if no_periodo(d, corte_anterior, corte)),
+        }
+        for campo in ("gerais", "com_plano", "pagantes", "receita_real"):
+            ponto[f"variacao_{campo}"] = _variacao(ponto[campo], anterior[campo] if anterior else None)
+        pontos.append(ponto)
+        corte_anterior = corte
+    return {"granularidade": granularidade, "periodos": pontos, "semanas": pontos}
 
 
 __all__ = ["crescimento", "preco_real_por_email", "resumo_financeiro"]
