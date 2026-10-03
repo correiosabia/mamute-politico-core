@@ -37,7 +37,8 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Set, Tuple
 
 import requests
-from sqlalchemy import text
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 if __package__ in (None, ""):
@@ -47,6 +48,7 @@ from mamute_scrappers.tse_crawler.resultados_parsing import (  # noqa: E402
     TZ_BRASILIA,
     arquivos_da_eleicao,
     config_url,
+    foi_eleito,
     parse_config,
     parse_result_file,
     result_file_url,
@@ -131,34 +133,53 @@ def _mapa_candidaturas(session: Session, ano: int) -> Dict[int, int]:
     return {int(r.tse_candidate_id): int(r.id) for r in rows}
 
 
-def _arquivos_finais(session: Session, ciclo: str) -> Set[Tuple[int, str, int]]:
+def _tem_coluna_eleitos(session: Session) -> bool:
+    """`eleitos_no_arquivo` (CS-107) ainda nao existe na janela do deploy
+    antes da migration cs107a1b2c3d4; ate la a coleta segue sem ela."""
+    try:
+        colunas = inspect(session.get_bind()).get_columns("tse_result_file")
+    except SQLAlchemyError:
+        return True
+    return any(c.get("name") == "eleitos_no_arquivo" for c in colunas)
+
+
+def _arquivos_finais(
+    session: Session, ciclo: str, *, com_eleitos: bool
+) -> Set[Tuple[int, str, int]]:
+    sem_contagem = " AND eleitos_no_arquivo IS NOT NULL" if com_eleitos else ""
     rows = session.execute(
         text(
             "SELECT codigo_eleicao, uf, cargo_codigo FROM tse_result_file "
-            "WHERE ciclo = :ciclo AND totalizacao_final"
+            "WHERE ciclo = :ciclo AND totalizacao_final" + sem_contagem
         ),
         {"ciclo": ciclo},
     ).all()
     return {(int(r.codigo_eleicao), r.uf, int(r.cargo_codigo)) for r in rows}
 
 
-_UPSERT_ARQUIVO = text(
-    """
-    INSERT INTO tse_result_file
-        (ciclo, codigo_eleicao, turno, uf, cargo_codigo, totalizacao_final,
-         tse_atualizado_em, candidatos_no_arquivo, candidatos_casados, coletado_em)
-    VALUES
-        (:ciclo, :codigo_eleicao, :turno, :uf, :cargo_codigo, :final,
-         :atualizado_em, :no_arquivo, :casados, :agora)
-    ON CONFLICT (codigo_eleicao, uf, cargo_codigo) DO UPDATE SET
-        turno = excluded.turno,
-        totalizacao_final = excluded.totalizacao_final,
-        tse_atualizado_em = excluded.tse_atualizado_em,
-        candidatos_no_arquivo = excluded.candidatos_no_arquivo,
-        candidatos_casados = excluded.candidatos_casados,
-        coletado_em = excluded.coletado_em
-    """
-)
+def _upsert_arquivo(*, com_eleitos: bool):
+    coluna = ", eleitos_no_arquivo" if com_eleitos else ""
+    valor = ", :eleitos" if com_eleitos else ""
+    atualiza = "eleitos_no_arquivo = excluded.eleitos_no_arquivo," if com_eleitos else ""
+    return text(
+        f"""
+        INSERT INTO tse_result_file
+            (ciclo, codigo_eleicao, turno, uf, cargo_codigo, totalizacao_final,
+             tse_atualizado_em, candidatos_no_arquivo, candidatos_casados,
+             coletado_em{coluna})
+        VALUES
+            (:ciclo, :codigo_eleicao, :turno, :uf, :cargo_codigo, :final,
+             :atualizado_em, :no_arquivo, :casados, :agora{valor})
+        ON CONFLICT (codigo_eleicao, uf, cargo_codigo) DO UPDATE SET
+            turno = excluded.turno,
+            totalizacao_final = excluded.totalizacao_final,
+            tse_atualizado_em = excluded.tse_atualizado_em,
+            candidatos_no_arquivo = excluded.candidatos_no_arquivo,
+            candidatos_casados = excluded.candidatos_casados,
+            {atualiza}
+            coletado_em = excluded.coletado_em
+        """
+    )
 
 _UPSERT_RESULTADO = text(
     """
@@ -210,7 +231,9 @@ def coletar(
         return stats
 
     candidaturas = _mapa_candidaturas(session, ano_do_ciclo(ciclo))
-    ja_finais = _arquivos_finais(session, ciclo)
+    com_eleitos = _tem_coluna_eleitos(session)
+    ja_finais = _arquivos_finais(session, ciclo, com_eleitos=com_eleitos)
+    upsert_arquivo = _upsert_arquivo(com_eleitos=com_eleitos)
 
     for eleicao in eleicoes:
         if eleicao.data > hoje and not ignorar_data:
@@ -256,7 +279,7 @@ def coletar(
 
             agora = datetime.now(timezone.utc)
             session.execute(
-                _UPSERT_ARQUIVO,
+                upsert_arquivo,
                 {
                     "ciclo": ciclo,
                     "codigo_eleicao": eleicao.codigo,
@@ -267,6 +290,7 @@ def coletar(
                     "atualizado_em": arquivo.atualizado_em,
                     "no_arquivo": len(arquivo.candidatos),
                     "casados": len(casados),
+                    "eleitos": sum(1 for c in arquivo.candidatos if foi_eleito(c)),
                     "agora": agora,
                 },
             )

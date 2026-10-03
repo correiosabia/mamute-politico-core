@@ -132,3 +132,52 @@ def test_filtro_de_uf_e_cargo() -> None:
     tse = FakeTse({GOV_SP: _load("sim-sp-governador.json")})
     coletar(session, base=BASE, http_get=tse, hoje=DOMINGO, ufs=["SP"], cargos=[3])
     assert tse.chamadas == [f"{BASE}/comum/config/ele-c.json", GOV_SP]
+
+
+def test_conta_eleitos_do_arquivo_inteiro_casados_ou_nao() -> None:
+    # CS-107: o perfil dos eleitos confere o total do TSE com o que achou na base.
+    session = make_session()
+    add_candidacy(session, 4, 41627126, office_code=6)  # suplente; o eleito nao esta na base
+    tse = FakeTse({GOV_SP: _load("sim-sp-governador.json"), DEP_SP: _load("sim-sp-depfed.json")})
+    coletar(session, base=BASE, http_get=tse, hoje=DOMINGO)
+    eleitos = dict(
+        session.execute(
+            text("SELECT cargo_codigo, eleitos_no_arquivo FROM tse_result_file")
+        ).all()
+    )
+    # 2o turno nao e eleito; o "Eleito por media" conta mesmo sem casar.
+    assert eleitos == {3: 0, 6: 1}
+
+
+def test_arquivo_encerrado_sem_contagem_de_eleitos_e_baixado_de_novo_uma_vez() -> None:
+    session = _sessao_com_candidatos()
+    tse = FakeTse({DEP_SP: _load("sim-sp-depfed.json")})
+    coletar(session, base=BASE, http_get=tse, hoje=DOMINGO, cargos=[6])
+    # Simula arquivo encerrado coletado antes da CS-107.
+    session.execute(text("UPDATE tse_result_file SET eleitos_no_arquivo = NULL"))
+    session.commit()
+
+    tse.chamadas.clear()
+    coletar(session, base=BASE, http_get=tse, hoje=DOMINGO, cargos=[6])
+    assert DEP_SP in tse.chamadas
+    assert session.execute(text("SELECT eleitos_no_arquivo FROM tse_result_file")).scalar() == 1
+
+    tse.chamadas.clear()
+    coletar(session, base=BASE, http_get=tse, hoje=DOMINGO, cargos=[6])
+    assert DEP_SP not in tse.chamadas
+
+
+def test_coleta_segue_sem_a_coluna_de_eleitos_antes_da_migration() -> None:
+    # Janela do deploy: containers novos rodando contra o schema da cs106.
+    session = make_session()
+    session.execute(text("ALTER TABLE tse_result_file DROP COLUMN eleitos_no_arquivo"))
+    session.commit()
+    add_candidacy(session, 3, 41627158, office_code=6)
+    tse = FakeTse({DEP_SP: _load("sim-sp-depfed.json")})
+    stats = coletar(session, base=BASE, http_get=tse, hoje=DOMINGO, cargos=[6])
+    assert stats.candidatos_casados == 1
+    assert session.execute(text("SELECT totalizacao_final FROM tse_result_file")).scalar() in (1, True)
+
+    tse.chamadas.clear()
+    coletar(session, base=BASE, http_get=tse, hoje=DOMINGO, cargos=[6])
+    assert DEP_SP not in tse.chamadas

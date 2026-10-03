@@ -134,3 +134,13 @@ visible catalog. Which plans get the mamutômetro lives in `feature_flag_tier`;
 how many parliamentarians a plan may mark lives in `tiers.detalhes`
 (`qtd_mamutometro`). **Changing configuration never deletes a subscriber's
 marks** — they go dormant and return if the configuration returns.
+
+### Elected Candidate
+
+A 2026 candidacy whose official TSE result, in a results file with the
+totalization closed, has `eleito = true` **and** a status starting with
+"Eleito" ("Eleito", "Eleito por QP", "Eleito por média"), stored in
+`candidacy_result`. The flag alone is not enough: the TSE also sets `e = "s"`
+for candidates who went to the runoff. Gender and race come from the candidacy
+(`candidacy.gender`/`race`), because the results file does not carry them. A
+partial (still open) result never counts as elected anywhere in the product.

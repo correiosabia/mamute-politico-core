@@ -14,6 +14,7 @@ Layout validado em 01/10/2026 contra o oficial e o simulado de 2026:
   hora da totalizacao). Candidatos em `carg[].agr[].par[].cand[]`: `sqcand`
   (= SQ_CANDIDATO = candidacy.tse_candidate_id), `st` (situacao em texto),
   `e` ("s"/"n"), `vap` (votos), `pvap` ("8,39"), `dvt` (destinacao do voto).
+  `e = "s"` tambem vale para quem foi ao 2o turno; ver `foi_eleito`.
 """
 
 from __future__ import annotations
@@ -197,6 +198,17 @@ def parse_result_file(payload: dict) -> ArquivoResultado:
         atualizado_em=_parse_timestamp(payload.get("dt"), payload.get("ht")),
         candidatos=candidatos,
     )
+
+
+def foi_eleito(candidato: CandidatoResultado) -> bool:
+    """Eleito de fato no arquivo, para contar eleitos (CS-107).
+
+    `e = "s"` sozinho nao basta: o TSE tambem marca assim quem foi ao 2o turno
+    (conferido no simulado de governador). Eleito e `e = "s"` com a situacao
+    comecando por "Eleito" ("Eleito", "Eleito por QP", "Eleito por media").
+    A API (`api/services/elected_profile.py`) usa a mesma regra.
+    """
+    return bool(candidato.eleito) and (candidato.situacao or "").lower().startswith("eleito")
 
 
 def arquivos_da_eleicao(eleicao: EleicaoConfig) -> Iterable[tuple[str, int]]:

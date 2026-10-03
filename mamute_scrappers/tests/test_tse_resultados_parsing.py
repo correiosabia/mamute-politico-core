@@ -11,6 +11,7 @@ from mamute_scrappers.tse_crawler.resultados_parsing import (
     abrangencias,
     arquivos_da_eleicao,
     config_url,
+    foi_eleito,
     parse_config,
     parse_result_file,
     result_file_url,
@@ -99,3 +100,17 @@ def test_arquivo_oficial_ainda_aberto() -> None:
     # antes da apuracao `st` vem vazio: vira None, nunca string vazia
     assert all(c.situacao is None for c in arquivo.candidatos)
     assert 280002551544 in {c.sqcand for c in arquivo.candidatos}
+
+
+def test_foi_eleito_nao_conta_quem_foi_ao_segundo_turno() -> None:
+    # O TSE marca e="s" tambem para o 2o turno; eleito exige situacao "Eleito...".
+    governador = parse_result_file(_load("sim-sp-governador.json"))
+    assert sum(1 for c in governador.candidatos if c.eleito) == 2
+    assert sum(1 for c in governador.candidatos if foi_eleito(c)) == 0
+
+    deputados = parse_result_file(_load("sim-sp-depfed.json"))
+    eleitos = [c for c in deputados.candidatos if foi_eleito(c)]
+    assert [c.situacao for c in eleitos] == ["Eleito por média"]
+
+    aberto = parse_result_file(_load("oficial-br-presidente-aberto.json"))
+    assert not any(foi_eleito(c) for c in aberto.candidatos)

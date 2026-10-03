@@ -31,6 +31,7 @@ try:
         run_sync as run_ghost_tiers_sync,
     )
     from ..services.admin_coverage import db_coverage
+    from ..services.elected_profile import elected_profile
     from ..services.openrouter_credits import credits_overview
     from ..services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -83,6 +84,7 @@ except ImportError:  # execução dentro de api/
         run_sync as run_ghost_tiers_sync,
     )
     from services.admin_coverage import db_coverage
+    from services.elected_profile import elected_profile
     from services.openrouter_credits import credits_overview
     from services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -461,6 +463,16 @@ def metrics_emails_route(
     _admin: str = Depends(require_ghost_admin),
 ) -> dict[str, Any]:
     return metrics_emails(db)
+
+
+@router.get("/elected-profile")
+def elected_profile_route(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    """Gênero e cor/raça dos eleitos de 2026 (Senado e Câmara), só com o
+    resultado oficial encerrado. Regras em `services/elected_profile.py`."""
+    return elected_profile(db)
 
 
 @router.get("/coverage")
