@@ -9,8 +9,13 @@ Definições (decididas pelo Luiz em 03/10/2026):
 - **Pagantes**: com plano e pagando algo (MRR > 0).
 - **Isentos**: com plano e MRR = 0 (oferta de 100%, como a Fellowship, ou
   cortesia).
-- **Receita real**: soma do MRR das assinaturas ativas, já com a oferta
-  aplicada (o Ghost calcula; a anual entra dividida por 12).
+- **Receita real**: quanto as assinaturas ativas pagam por mês. O MRR do
+  Ghost só desconta oferta "para sempre"; oferta temporária ("por 12 meses",
+  como Mamute 70/80/90) entra nele pelo preço cheio. Por isso o valor real de
+  cada assinatura é o MENOR entre o MRR do Ghost e o preço com a oferta,
+  enquanto a oferta estiver valendo (`desconto_fim` no futuro, ou "para
+  sempre"). O MRR do Ghost continua valendo quando é menor (desconto aplicado
+  direto na Stripe, que o Ghost enxerga e nós não). Anual dividida por 12.
 - **Receita de tabela**: o que entraria sem desconto (preço do plano; a anual
   dividida por 12; cortesia pelo preço mensal do plano dela).
 - **Receita isenta**: tabela − real. O que deixa de entrar com os descontos.
@@ -55,7 +60,7 @@ def _assinaturas_ativas(db: Session) -> list[Any]:
             """
             SELECT id, membro_id, email, status, intervalo, valor_tabela_centavos,
                    mrr_centavos, oferta, oferta_desconto_tipo, oferta_desconto_valor,
-                   oferta_duracao, oferta_meses
+                   oferta_duracao, oferta_meses, desconto_fim, inicio
               FROM ghost_assinatura
              WHERE status IN ('active', 'trialing', 'past_due')
             """
@@ -70,6 +75,39 @@ def _cortesias(db: Session) -> list[Any]:
             "WHERE status = 'comped'"
         )
     ).all()
+
+
+def _oferta_valendo(a: Any, quando: datetime) -> bool:
+    if not a.oferta or not a.oferta_desconto_tipo:
+        return False
+    if a.oferta_duracao == "forever":
+        return True
+    fim = _utc(a.desconto_fim)
+    return fim is not None and quando < fim
+
+
+def _preco_com_oferta(a: Any) -> float:
+    tabela = _tabela_mensal(a.valor_tabela_centavos, a.intervalo)
+    valor = a.oferta_desconto_valor or 0
+    if a.oferta_desconto_tipo == "percent":
+        return tabela * (1 - valor / 100)
+    if a.oferta_desconto_tipo == "fixed":
+        fixo = valor / 12 if (a.intervalo or "").lower() == "year" else valor
+        return max(tabela - fixo, 0.0)
+    return tabela
+
+
+def _preco_real(a: Any, quando: datetime, *, ativa_hoje: bool) -> float:
+    """Valor mensal real da assinatura na data (centavos).
+
+    Base = MRR do Ghost se a assinatura está ativa hoje; se já acabou, o Ghost
+    zera o MRR, então a base vira o preço de tabela. Com oferta valendo na
+    data, fica o menor entre a base e o preço com a oferta.
+    """
+    base = float(a.mrr_centavos) if ativa_hoje else _tabela_mensal(a.valor_tabela_centavos, a.intervalo)
+    if _oferta_valendo(a, quando):
+        return min(base, _preco_com_oferta(a))
+    return base
 
 
 def _descricao_oferta(a: Any) -> Optional[str]:
@@ -93,16 +131,18 @@ def _descricao_oferta(a: Any) -> Optional[str]:
 
 
 def resumo_financeiro(db: Session) -> dict[str, Any]:
+    agora = datetime.now(timezone.utc)
     ativas = _assinaturas_ativas(db)
+    precos = {a.id: _preco_real(a, agora, ativa_hoje=True) for a in ativas}
     cortesias = _cortesias(db)
     gerais = int(db.execute(text("SELECT count(*) FROM ghost_membro")).scalar() or 0)
 
-    real = sum(a.mrr_centavos for a in ativas)
+    real = sum(precos.values())
     tabela = sum(_tabela_mensal(a.valor_tabela_centavos, a.intervalo) for a in ativas)
     tabela += sum(c.plano_valor_mensal_centavos or 0 for c in cortesias)
 
-    pagantes = {a.membro_id or a.id for a in ativas if a.mrr_centavos > 0}
-    isentos_assinatura = {a.membro_id or a.id for a in ativas if a.mrr_centavos <= 0} - pagantes
+    pagantes = {a.membro_id or a.id for a in ativas if precos[a.id] > 0}
+    isentos_assinatura = {a.membro_id or a.id for a in ativas if precos[a.id] <= 0} - pagantes
     isentos = len(isentos_assinatura) + len(cortesias)
 
     ofertas: dict[str, dict[str, Any]] = {}
@@ -119,7 +159,7 @@ def resumo_financeiro(db: Session) -> dict[str, Any]:
             },
         )
         linha["assinaturas"] += 1
-        linha["receita_real"] += a.mrr_centavos
+        linha["receita_real"] += precos[a.id]
         linha["receita_tabela"] += _tabela_mensal(a.valor_tabela_centavos, a.intervalo)
     if cortesias:
         valor = sum(c.plano_valor_mensal_centavos or 0 for c in cortesias)
@@ -163,9 +203,12 @@ def preco_real_por_email(db: Session) -> dict[str, float]:
     for c in _cortesias(db):
         if c.email:
             precos[c.email] = 0.0
+    agora = datetime.now(timezone.utc)
     for a in _assinaturas_ativas(db):
         if a.email:
-            precos[a.email] = precos.get(a.email, 0.0) + _reais(a.mrr_centavos)
+            precos[a.email] = round(
+                precos.get(a.email, 0.0) + _preco_real(a, agora, ativa_hoje=True) / 100, 2
+            )
     return precos
 
 
@@ -177,74 +220,103 @@ def crescimento(db: Session, *, hoje: Optional[date] = None) -> dict[str, Any]:
     """Séries semanais (fechamento de domingo) de usuários e receita.
 
     Reconstrução pelo histórico do Ghost:
-    - status de cada membro na data = último evento de status até ela;
-    - MRR de cada assinatura na data = soma dos `mrr_delta` até ela (é como o
-      próprio Ghost monta o gráfico de MRR);
-    - receita de tabela na data usa o preço ATUAL da assinatura/plano de quem
-      estava com plano (o Ghost não guarda o histórico de preço de tabela).
+    - assinatura ativa na data = começou até ela e não tinha sido cancelada
+      ou expirada (eventos `canceled`/`expired`); as ativas hoje não acabaram;
+    - cortesia na data = último evento de status até ela é `comped` (para
+      assinatura paga o Ghost nem sempre grava evento de status, por isso o
+      "com plano" vem das assinaturas, não dos eventos);
+    - valor real na data = mesma regra do resumo (`_preco_real`), com a oferta
+      valendo ou não naquela data;
+    - receita de tabela usa o preço de tabela atual de cada assinatura/plano
+      (o Ghost não guarda histórico de preço de tabela).
     """
     hoje = hoje or datetime.now(timezone.utc).date()
-    membros = db.execute(text("SELECT id, status, plano_valor_mensal_centavos, criado_em FROM ghost_membro")).all()
+    membros = db.execute(
+        text("SELECT id, status, plano_valor_mensal_centavos, criado_em FROM ghost_membro")
+    ).all()
     if not membros:
         return {"semanas": []}
     status_ev = db.execute(
-        text("SELECT membro_id, para_status, criado_em FROM ghost_membro_status_evento ORDER BY criado_em")
-    ).all()
-    eventos = db.execute(
-        text("SELECT assinatura_id, membro_id, mrr_delta_centavos, criado_em FROM ghost_assinatura_evento ORDER BY criado_em")
+        text("SELECT membro_id, para_status, criado_em FROM ghost_membro_status_evento ORDER BY criado_em, id")
     ).all()
     assinaturas = db.execute(
-        text("SELECT id, membro_id, intervalo, valor_tabela_centavos FROM ghost_assinatura")
+        text(
+            """
+            SELECT id, membro_id, status, intervalo, valor_tabela_centavos, mrr_centavos,
+                   oferta, oferta_desconto_tipo, oferta_desconto_valor, oferta_duracao,
+                   desconto_fim, inicio
+              FROM ghost_assinatura
+            """
+        )
     ).all()
+    fins: dict[str, datetime] = {}
+    for e in db.execute(
+        text(
+            "SELECT assinatura_id, criado_em FROM ghost_assinatura_evento "
+            "WHERE tipo IN ('canceled', 'expired') ORDER BY criado_em"
+        )
+    ).all():
+        fins.setdefault(e.assinatura_id, _utc(e.criado_em))
 
-    tabela_por_membro: dict[str, float] = {}
-    for a in assinaturas:
-        if a.membro_id:
-            tabela_por_membro[a.membro_id] = _tabela_mensal(a.valor_tabela_centavos, a.intervalo)
-    plano_por_membro = {m.id: float(m.plano_valor_mensal_centavos or 0) for m in membros}
     criado = {m.id: _utc(m.criado_em) for m in membros}
+    plano_por_membro = {m.id: float(m.plano_valor_mensal_centavos or 0) for m in membros}
     historico: dict[str, list[tuple[datetime, str]]] = defaultdict(list)
     for e in status_ev:
         historico[e.membro_id].append((_utc(e.criado_em), e.para_status))
-    eventos_utc = [(_utc(e.criado_em), e.assinatura_id, e.membro_id, e.mrr_delta_centavos) for e in eventos]
 
-    inicio = min(c for c in criado.values() if c is not None).date()
-    semana = _fim_da_semana(inicio)
-    fim = _fim_da_semana(hoje)
+    periodos = []
+    for a in assinaturas:
+        inicio = _utc(a.inicio)
+        if inicio is None:
+            continue
+        ativa_hoje = a.status in STATUS_ATIVOS
+        fim = None if ativa_hoje else fins.get(a.id, inicio)
+        periodos.append((a, inicio, fim, ativa_hoje))
+
+    primeira = min(c for c in criado.values() if c is not None).date()
+    semana = _fim_da_semana(primeira)
+    fim_series = _fim_da_semana(hoje)
     pontos = []
-    while semana <= fim:
+    while semana <= fim_series:
         corte = datetime.combine(min(semana, hoje), datetime.max.time(), tzinfo=timezone.utc)
-        mrr_assinatura: dict[str, int] = defaultdict(int)
-        membro_da_assinatura: dict[str, Optional[str]] = {}
-        for quando, assinatura, membro, delta in eventos_utc:
-            if quando <= corte:
-                mrr_assinatura[assinatura] += delta
-                membro_da_assinatura[assinatura] = membro
-        pagantes = {membro_da_assinatura[s] for s, v in mrr_assinatura.items() if v > 0}
+        gerais = sum(1 for c in criado.values() if c is not None and c <= corte)
 
-        gerais = com_plano = 0
-        tabela = 0.0
-        for m in membros:
-            if criado[m.id] is None or criado[m.id] > corte:
+        com_assinatura: set[str] = set()
+        pagantes: set[str] = set()
+        real = tabela = 0.0
+        for a, inicio, fim, ativa_hoje in periodos:
+            if inicio > corte or (fim is not None and fim <= corte):
                 continue
-            gerais += 1
-            status = "free"
-            for quando, para in historico.get(m.id, ()):
+            membro = a.membro_id or a.id
+            com_assinatura.add(membro)
+            preco = _preco_real(a, corte, ativa_hoje=ativa_hoje)
+            real += preco
+            tabela += _tabela_mensal(a.valor_tabela_centavos, a.intervalo)
+            if preco > 0:
+                pagantes.add(membro)
+
+        cortesias = 0
+        for membro_id, eventos in historico.items():
+            if membro_id in com_assinatura:
+                continue
+            status = None
+            for quando, para in eventos:
                 if quando <= corte:
                     status = para
                 else:
                     break
-            if status in STATUS_COM_PLANO:
-                com_plano += 1
-                tabela += tabela_por_membro.get(m.id, plano_por_membro.get(m.id, 0.0))
-        real = sum(v for v in mrr_assinatura.values() if v > 0)
+            if status == "comped":
+                cortesias += 1
+                tabela += plano_por_membro.get(membro_id, 0.0)
+
+        com_plano = len(com_assinatura) + cortesias
         pontos.append(
             {
                 "semana": semana.isoformat(),
                 "gerais": gerais,
                 "com_plano": com_plano,
                 "pagantes": len(pagantes),
-                "isentos": max(com_plano - len(pagantes), 0),
+                "isentos": com_plano - len(pagantes),
                 "receita_real": _reais(real),
                 "receita_tabela": _reais(tabela),
             }
