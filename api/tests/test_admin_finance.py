@@ -51,17 +51,17 @@ def _ghost() -> dict:
         {"id": "m4", "email": "anual@x.com", "status": "paid", "created_at": _dt("2026-07-20 10:00:00"), "plano": "Mamute Completo", "plano_valor_mensal": 5000},
         {"id": "m5", "email": "cortesia@x.com", "status": "comped", "created_at": _dt("2026-07-21 10:00:00"), "plano": "Mamute Completo", "plano_valor_mensal": 5000},
     ]
-    assinatura = lambda i, m, email, intervalo, valor, mrr, oferta=None, pct=None, dur=None: {  # noqa: E731
+    assinatura = lambda i, m, email, intervalo, valor, mrr, oferta=None, pct=None, dur=None, inicio="2026-07-02 10:00:00", fim=None: {  # noqa: E731
         "id": i, "member_id": m, "email": email, "plano": "Mamute Completo", "status": "active",
         "intervalo": intervalo, "valor_tabela": valor, "mrr": mrr, "oferta": oferta,
         "oferta_desconto_tipo": "percent" if pct else None, "oferta_desconto_valor": pct,
         "oferta_duracao": dur, "oferta_meses": 12 if dur == "repeating" else None,
-        "desconto_fim": None, "inicio": _dt("2026-07-02 10:00:00"),
+        "desconto_fim": _dt(fim) if fim else None, "inicio": _dt(inicio),
     }
     assinaturas = [
         assinatura("s2", "m2", "paga@x.com", "month", 5000, 1000, "Mamute 80", 80, "repeating"),
-        assinatura("s3", "m3", "fellow@x.com", "month", 5000, 0, "Fellowship", 100, "forever"),
-        assinatura("s4", "m4", "anual@x.com", "year", 50000, 4167),
+        assinatura("s3", "m3", "fellow@x.com", "month", 5000, 0, "Fellowship", 100, "forever", inicio="2026-07-10 10:00:00"),
+        assinatura("s4", "m4", "anual@x.com", "year", 50000, 4167, inicio="2026-07-20 10:00:00"),
         {**assinatura("s9", "m1", "free@x.com", "month", 5000, 0), "status": "canceled"},
     ]
     eventos = [
@@ -99,6 +99,21 @@ def test_resumo_separa_pagantes_isentos_e_receita_isenta() -> None:
     assert ofertas["Sem oferta"]["receita_isenta"] == 0.0
 
 
+def test_oferta_temporaria_que_o_ghost_lanca_cheia_vale_com_desconto() -> None:
+    """O MRR do Ghost ignora oferta "por 12 meses": vem 5000 com 90% de desconto."""
+    dados = _ghost()
+    dados["assinaturas"][0].update(
+        mrr=5000, oferta="Mamute 90", oferta_desconto_valor=90, desconto_fim=_dt("2099-01-01 00:00:00")
+    )
+    db = _sessao()
+    sincronizar(db, ghost_url="mysql://x", leitor=lambda _u: dados)
+    assert preco_real_por_email(db)["paga@x.com"] == 5.0
+    # depois que o desconto acaba, volta a valer o MRR do Ghost
+    dados["assinaturas"][0]["desconto_fim"] = _dt("2020-01-01 00:00:00")
+    sincronizar(db, ghost_url="mysql://x", leitor=lambda _u: dados)
+    assert preco_real_por_email(db)["paga@x.com"] == 50.0
+
+
 def test_preco_real_por_email_ignora_assinatura_cancelada() -> None:
     precos = preco_real_por_email(_sincronizado())
     assert precos == {"paga@x.com": 10.0, "fellow@x.com": 0.0, "anual@x.com": 41.67, "cortesia@x.com": 0.0}
@@ -112,6 +127,7 @@ def test_crescimento_reconstroi_semanas_pelo_historico() -> None:
         "semana": "2026-07-05", "gerais": 2, "com_plano": 1, "pagantes": 1, "isentos": 0,
         "receita_real": 10.0, "receita_tabela": 50.0,
     }
+    # cancelamento da s9 (assinatura do free) nunca conta: sem evento, fica fora
     # semana que fecha em 26/07: todos; Fellowship e cortesia isentos
     ultima = por_semana["2026-07-26"]
     assert (ultima["gerais"], ultima["com_plano"], ultima["pagantes"], ultima["isentos"]) == (5, 4, 2, 2)
@@ -147,3 +163,34 @@ def test_sync_troca_o_conteudo_e_so_renova_quando_velho() -> None:
     )
     assert chamadas == [1]
     assert db.execute(text("select count(*) from ghost_membro")).scalar() == 1
+
+
+def test_taxas_da_stripe_somam_o_mes_e_avisam_sem_chave() -> None:
+    from api.services.stripe_fees import taxas_do_mes
+
+    assert taxas_do_mes(chave="")["disponivel"] is False
+
+    class Resp:
+        def __init__(self, corpo: dict) -> None:
+            self.corpo = corpo
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return self.corpo
+
+    paginas = [
+        {"data": [{"id": "t1", "type": "charge", "amount": 1000, "fee": 79}], "has_more": True},
+        {"data": [{"id": "t2", "type": "charge", "amount": 5000, "fee": 239},
+                  {"id": "t3", "type": "payout", "amount": -4000, "fee": 0}], "has_more": False},
+    ]
+    chamadas = []
+
+    def http_get(url, params, auth, timeout):
+        chamadas.append(dict(params))
+        return Resp(paginas[len(chamadas) - 1])
+
+    r = taxas_do_mes(chave="rk_test", http_get=http_get, agora=datetime(2026, 10, 3, tzinfo=timezone.utc))
+    assert r == {"disponivel": True, "recebido_bruto": 60.0, "taxas": 3.18, "taxas_percentual": 5.3, "cobrancas": 2}
+    assert chamadas[1]["starting_after"] == "t1"

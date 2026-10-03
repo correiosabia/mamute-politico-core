@@ -34,6 +34,7 @@ try:
     from ..services.elected_profile import elected_profile
     from ..services.admin_finance import crescimento, resumo_financeiro
     from ..services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
+    from ..services.stripe_fees import taxas_do_mes
     from ..services.openrouter_credits import credits_overview
     from ..services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -89,6 +90,7 @@ except ImportError:  # execução dentro de api/
     from services.elected_profile import elected_profile
     from services.admin_finance import crescimento, resumo_financeiro
     from services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
+    from services.stripe_fees import taxas_do_mes
     from services.openrouter_credits import credits_overview
     from services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -408,6 +410,7 @@ def metrics_finance_route(
         **resumo,
         "custo_ia_mes": overview["custo_mes_brl"],
         "margem_real": round(resumo["receita_real"] - overview["custo_mes_brl"], 2),
+        "stripe": taxas_do_mes(),
         "sync": ultimo_sync(db),
     }
 
