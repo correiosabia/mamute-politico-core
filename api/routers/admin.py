@@ -32,6 +32,8 @@ try:
     )
     from ..services.admin_coverage import db_coverage
     from ..services.elected_profile import elected_profile
+    from ..services.admin_finance import crescimento, resumo_financeiro
+    from ..services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
     from ..services.openrouter_credits import credits_overview
     from ..services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -85,6 +87,8 @@ except ImportError:  # execução dentro de api/
     )
     from services.admin_coverage import db_coverage
     from services.elected_profile import elected_profile
+    from services.admin_finance import crescimento, resumo_financeiro
+    from services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
     from services.openrouter_credits import credits_overview
     from services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -389,6 +393,42 @@ def metrics_overview_route(
     _admin: str = Depends(require_ghost_admin),
 ) -> dict[str, Any]:
     return metrics_overview(db, current_period_start(), get_usd_brl_rate(db))
+
+
+@router.get("/metrics/finance")
+def metrics_finance_route(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    """Aba Financeiro (CS-121): renova o espelho do Ghost se tiver mais de 1 h."""
+    garantir_sync_recente(db)
+    overview = metrics_overview(db, current_period_start(), get_usd_brl_rate(db))
+    resumo = resumo_financeiro(db)
+    return {
+        **resumo,
+        "custo_ia_mes": overview["custo_mes_brl"],
+        "margem_real": round(resumo["receita_real"] - overview["custo_mes_brl"], 2),
+        "sync": ultimo_sync(db),
+    }
+
+
+@router.get("/metrics/growth")
+def metrics_growth_route(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    return {**crescimento(db), "sync": ultimo_sync(db)}
+
+
+@router.post("/metrics/finance/sync")
+def metrics_finance_sync_route(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    resultado = sincronizar(db)
+    if not resultado.get("ok"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=resultado.get("erro"))
+    return {**resultado, "sync": ultimo_sync(db)}
 
 
 @router.get("/metrics/users")

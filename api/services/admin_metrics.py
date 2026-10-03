@@ -14,6 +14,7 @@ from datetime import timezone as dt_timezone
 from typing import Any, Optional
 
 from sqlalchemy import func, select, text
+from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger("admin_metrics")
@@ -167,6 +168,23 @@ def _favorites_by_project(db: Session) -> dict[int, int]:
     return {row.projeto_id: int(row.n) for row in db.execute(stmt)}
 
 
+def _precos_reais(db: Session) -> Optional[dict[str, float]]:
+    """Preço real por e-mail vindo do espelho do Ghost (CS-121); None sem espelho.
+
+    Checa a tabela antes (em vez de try/rollback) para não desfazer a
+    transação de quem chamou na janela do deploy antes da migration cs121.
+    """
+    try:
+        from .admin_finance import preco_real_por_email
+    except ImportError:  # execução dentro de api/
+        from services.admin_finance import preco_real_por_email
+    if not sqlalchemy_inspect(db.connection()).has_table("ghost_membro"):
+        return None
+    if not db.execute(text("SELECT 1 FROM ghost_membro LIMIT 1")).first():
+        return None
+    return preco_real_por_email(db)
+
+
 def metrics_users(
     db: Session,
     period_start: date,
@@ -183,6 +201,7 @@ def metrics_users(
     month = _usage_by_project(db, period_start)
     total = _usage_by_project(db, None)
     favorites = _favorites_by_project(db)
+    precos_reais = _precos_reais(db)
 
     users: list[dict[str, Any]] = []
     for projeto in projetos:
@@ -196,6 +215,13 @@ def metrics_users(
         limite_consultas = detalhes.get("qtd_consultas_ia_mes")
         limite_parlamentares = detalhes.get("qtd_termos")
         monitorados = favorites.get(projeto.id, 0)
+        # Preço real (com oferta) vem do Ghost; sem espelho, cai no de tabela.
+        preco_real = (
+            precos_reais.get((projeto.email or "").strip().lower(), 0.0)
+            if precos_reais is not None
+            else None
+        )
+        preco_margem = preco_real if preco_real is not None else preco
 
         users.append(
             {
@@ -204,12 +230,13 @@ def metrics_users(
                 "nome": projeto.nome,
                 "plano": projeto.tier.product_id if projeto.tier else None,
                 "preco_mensal": round(preco, 2),
+                "preco_real": round(preco_real, 2) if preco_real is not None else None,
                 "consultas_mes": consultas_mes,
                 "consultas_total": int(total_row.calls) if total_row else 0,
                 "tokens_mes": int(month_row.tokens) if month_row else 0,
                 "custo_mes": round(custo_mes, 6),
                 "custo_mes_brl": round(custo_mes_brl, 2),
-                "margem_mes": round(preco - custo_mes_brl, 2),
+                "margem_mes": round(preco_margem - custo_mes_brl, 2),
                 "parlamentares_monitorados": monitorados,
                 "limite_parlamentares": limite_parlamentares,
                 "limite_consultas": limite_consultas,
@@ -620,7 +647,10 @@ def metrics_overview(
     db: Session, period_start: date, usd_brl_rate: float
 ) -> dict[str, Any]:
     users = metrics_users(db, period_start, usd_brl_rate)
-    receita = sum(u["preco_mensal"] for u in users)
+    receita_tabela = sum(u["preco_mensal"] for u in users)
+    # CS-121: receita real (com ofertas) quando o espelho do Ghost existe.
+    tem_espelho = any(u["preco_real"] is not None for u in users)
+    receita = sum(u["preco_real"] or 0 for u in users) if tem_espelho else receita_tabela
     custo_usd = sum(u["custo_mes"] for u in users)
     custo_brl = sum(u["custo_mes_brl"] for u in users)
     return {
@@ -630,6 +660,7 @@ def metrics_overview(
         "custo_mes": round(custo_usd, 6),
         "custo_mes_brl": round(custo_brl, 2),
         "receita_mes": round(receita, 2),
+        "receita_tabela_mes": round(receita_tabela, 2),
         "margem_mes": round(receita - custo_brl, 2),
         "usd_brl_rate": round(usd_brl_rate, 4),
         "parlamentares_monitorados": sum(u["parlamentares_monitorados"] for u in users),
