@@ -81,7 +81,18 @@ def mark_my_election_result_notice_seen(
     notice = db.get(ElectionResultNotice, notice_id)
     if notice is None or int(notice.projeto_id) != int(project.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Aviso não encontrado.")
-    if notice.seen_at is None:
-        notice.seen_at = datetime.now(timezone.utc)
-        db.commit()
+    # O aviso mostrado e o mais novo; os anteriores do mesmo ciclo (ex.: o de
+    # majoritarios, quando o completo ja saiu) ficam vistos junto, para o
+    # modal nao reaparecer com um resultado parcial e desatualizado (CS-119).
+    agora = datetime.now(timezone.utc)
+    for anterior in db.execute(
+        select(ElectionResultNotice).where(
+            ElectionResultNotice.projeto_id == project.id,
+            ElectionResultNotice.ciclo == notice.ciclo,
+            ElectionResultNotice.id <= notice.id,
+            ElectionResultNotice.seen_at.is_(None),
+        )
+    ).scalars():
+        anterior.seen_at = agora
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

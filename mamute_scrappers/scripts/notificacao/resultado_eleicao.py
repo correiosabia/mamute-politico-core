@@ -1,16 +1,23 @@
-"""Aviso do resultado da eleicao a quem acompanha candidatos (CS-106).
+"""Aviso do resultado da eleicao a quem acompanha candidatos (CS-106, CS-119).
 
-Roda depois da coleta (`tse_crawler.resultados`), no mesmo job de cron.
+Roda depois da coleta (`tse_crawler.resultados`), no mesmo job de cron (a cada
+15 minutos).
 
-Quem recebe, por turno:
-- turno 1: todo projeto ativo que acompanha candidatura do ano do ciclo;
-- turno 2: so quem acompanha candidato que foi ao 2o turno (`situacao`
-  "2º turno" no turno 1), e o aviso lista so esses candidatos.
-
-Quando: assim que TODOS os candidatos da pessoa estao em arquivo do TSE com a
-totalizacao encerrada (`tse_result_file.totalizacao_final`). Candidato que
-nao aparece num arquivo encerrado (indeferido, renuncia) entra como "Nao
-consta na totalizacao do TSE" e nao trava o envio.
+Disparos (CS-119): o aviso e um e-mail consolidado por pessoa, e so sai quando
+a totalizacao do TSE fecha em TODAS as UFs, para todo mundo junto.
+- turno 1, `majoritarios`: quando presidente, governador e senador fecham em
+  todas as UFs; lista so esses cargos, para quem acompanha algum deles;
+- turno 1, `completo`: quando os deputados (federal, estadual, distrital)
+  tambem fecham; resumo de todos os candidatos acompanhados, para todo mundo
+  que acompanha alguem. Se os dois ficam prontos na mesma rodada, so sai o
+  completo (ninguem recebe dois e-mails de uma vez);
+- turno 2, `completo`: quando fecham os arquivos de 2o turno de todos os
+  cargos x UFs que tiveram 2o turno; so para quem acompanha candidato que foi
+  ao 2o turno (`situacao` "2º turno" no turno 1), listando so esses.
+"Fechou" = o arquivo do TSE daquele cargo x UF esta com
+`tse_result_file.totalizacao_final`. Candidato que nao aparece num arquivo
+encerrado (indeferido, renuncia) entra como "Nao consta na totalizacao do TSE".
+A situacao vai com o texto do TSE ("Eleito por QP", "Suplente"...).
 
 Liga/desliga: flag `resultado_eleicao`, com a MESMA regra de
 `api/services/feature_flags.resolve_for` que decide o modal no app, para
@@ -21,10 +28,10 @@ e-mail e modal nunca divergirem:
                        `feature_flag_tier` (a migration cs106 semeia isso nos
                        planos que ja tem a busca de candidaturas liberada).
 
-Sem duplicata: `election_result_notice` tem unique (projeto, ciclo, turno). A
-linha nasce `pending` antes do envio; vira `sent`, `error` (tenta de novo nas
-proximas rodadas, ate MAX_TENTATIVAS) ou `skipped_no_email`. O `payload`
-gravado e a foto do que foi enviado e e o que o modal mostra.
+Sem duplicata: `election_result_notice` tem unique (projeto, ciclo, turno,
+disparo). A linha nasce `pending` antes do envio; vira `sent`, `error` (tenta
+de novo nas proximas rodadas, ate MAX_TENTATIVAS) ou `skipped_no_email`. O
+`payload` gravado e a foto do que foi enviado e e o que o modal mostra.
 
 Uso:
   python -m mamute_scrappers.scripts.notificacao.resultado_eleicao [--turno 1|2]
@@ -55,6 +62,15 @@ from mamute_scrappers.scripts.notificacao.config import (  # noqa: E402
     EmailBranding,
     get_branding,
 )
+from mamute_scrappers.tse_crawler.resultados_parsing import (  # noqa: E402
+    CARGO_DEP_DISTRITAL,
+    CARGO_DEP_ESTADUAL,
+    CARGO_DEP_FEDERAL,
+    CARGO_GOVERNADOR,
+    CARGO_PRESIDENTE,
+    CARGO_SENADOR,
+    abrangencias,
+)
 from mamute_scrappers.scripts.notificacao.send_log import (  # noqa: E402
     STATUS_ERROR,
     STATUS_SENT,
@@ -69,6 +85,12 @@ SITUACAO_SEGUNDO_TURNO = "2º turno"
 NAO_CONSTA = "Não consta na totalização do TSE"
 SEM_SITUACAO = "Sem situação informada pelo TSE"
 MAX_TENTATIVAS = 3
+
+DISPARO_MAJORITARIOS = "majoritarios"
+DISPARO_COMPLETO = "completo"
+CARGOS_MAJORITARIOS = frozenset({CARGO_PRESIDENTE, CARGO_GOVERNADOR, CARGO_SENADOR})
+CARGOS_TODOS = CARGOS_MAJORITARIOS | {CARGO_DEP_FEDERAL, CARGO_DEP_ESTADUAL, CARGO_DEP_DISTRITAL}
+CARGOS_SEGUNDO_TURNO = frozenset({CARGO_PRESIDENTE, CARGO_GOVERNADOR})
 
 STATUS_PENDING = "pending"
 STATUS_SKIPPED_NO_EMAIL = "skipped_no_email"
@@ -85,11 +107,12 @@ class AvisoPronto:
     email: Optional[str]
     nome: str
     turno: int
+    disparo: str = DISPARO_COMPLETO
     tier_id: Optional[int] = None
     itens: List[dict] = field(default_factory=list)
 
     def payload(self) -> dict:
-        return {"turno": self.turno, "itens": self.itens}
+        return {"turno": self.turno, "disparo": self.disparo, "itens": self.itens}
 
 
 @dataclass
@@ -115,10 +138,34 @@ def ano_do_ciclo(ciclo: str) -> int:
     return int("".join(ch for ch in ciclo if ch.isdigit()))
 
 
-def assunto(turno: int) -> str:
+def disparos_do_turno(turno: int) -> List[tuple[str, frozenset[int]]]:
+    """Disparos do turno, do mais completo para o parcial, com os cargos de cada um."""
+    if turno == 2:
+        return [(DISPARO_COMPLETO, CARGOS_SEGUNDO_TURNO)]
+    return [(DISPARO_COMPLETO, CARGOS_TODOS), (DISPARO_MAJORITARIOS, CARGOS_MAJORITARIOS)]
+
+
+def assunto(turno: int, disparo: str = DISPARO_COMPLETO) -> str:
     if turno == 2:
         return "Saiu o resultado do 2º turno dos candidatos que você acompanha"
-    return "Saiu o resultado dos candidatos que você acompanha"
+    if disparo == DISPARO_MAJORITARIOS:
+        return "Saiu o resultado de presidente, governador e senador que você acompanha"
+    return "Resultado completo: veja como ficaram todos os candidatos que você acompanha"
+
+
+def introducao(turno: int, disparo: str = DISPARO_COMPLETO) -> str:
+    if turno == 2:
+        return "O TSE encerrou a totalização do 2º turno em todo o país. Veja como ficaram os candidatos que você acompanha:"
+    if disparo == DISPARO_MAJORITARIOS:
+        return (
+            "O TSE encerrou a totalização de presidente, governador e senador em todo o país. "
+            "Veja como ficaram os candidatos que você acompanha para esses cargos. "
+            "O resultado dos deputados chega em outro e-mail, assim que o TSE encerrar a totalização deles."
+        )
+    return (
+        "O TSE encerrou a totalização de todos os cargos em todo o país. "
+        "Veja o resumo de todos os candidatos que você acompanha:"
+    )
 
 
 def estado_da_flag(session: Session) -> str:
@@ -163,14 +210,71 @@ def _arquivos_finais(session: Session, ciclo: str, turno: int) -> set[tuple[int,
     return {(int(r.cargo_codigo), r.uf.lower()) for r in rows}
 
 
+def _uf_do_arquivo(cargo: int, uf: Optional[str]) -> str:
+    return "br" if cargo == CARGO_PRESIDENTE else (uf or "").lower()
+
+
+def arquivos_esperados(
+    session: Session, *, ciclo: str, turno: int, cargos: frozenset[int]
+) -> set[tuple[int, str]]:
+    """Cargo x UF que precisam estar encerrados para o disparo sair.
+
+    Turno 1: todos os arquivos que o coletor baixa para esses cargos. Turno 2:
+    so os cargo x UF que tiveram alguem no 2o turno (vazio antes do turno 1
+    fechar, e ai nada sai).
+    """
+    if turno == 1:
+        return {(cargo, uf) for cargo in cargos for uf in abrangencias(cargo)}
+    rows = session.execute(
+        text(
+            """
+            SELECT DISTINCT c.office_code, c.state
+              FROM candidacy_result r1
+              JOIN candidacy c ON c.id = r1.candidacy_id
+             WHERE r1.turno = 1 AND r1.situacao = :seg AND c.election_year = :ano
+            """
+        ),
+        {"seg": SITUACAO_SEGUNDO_TURNO, "ano": ano_do_ciclo(ciclo)},
+    ).all()
+    return {
+        (int(r.office_code), _uf_do_arquivo(int(r.office_code), r.state))
+        for r in rows
+        if r.office_code is not None and int(r.office_code) in cargos
+    }
+
+
+def arquivos_pendentes(
+    session: Session, *, ciclo: str, turno: int, cargos: frozenset[int]
+) -> Optional[set[tuple[int, str]]]:
+    """Arquivos que ainda faltam fechar; None quando nao ha nada esperado."""
+    esperados = arquivos_esperados(session, ciclo=ciclo, turno=turno, cargos=cargos)
+    if not esperados:
+        return None
+    return esperados - _arquivos_finais(session, ciclo, turno)
+
+
 def montar_avisos(
     session: Session,
     *,
     ciclo: str,
     turno: int,
+    disparo: str = DISPARO_COMPLETO,
+    cargos: Optional[frozenset[int]] = None,
     projeto_id: Optional[int] = None,
 ) -> tuple[List[AvisoPronto], int]:
-    """Avisos prontos para envio e quantos projetos ainda aguardam o TSE."""
+    """Avisos do disparo e quantos arquivos do TSE ainda faltam fechar.
+
+    Enquanto faltar qualquer arquivo esperado, ninguem fica pronto: o disparo
+    e para todo mundo junto, depois que fecha em todas as UFs.
+    """
+    if cargos is None:
+        cargos = dict(disparos_do_turno(turno))[disparo]
+    pendentes = arquivos_pendentes(session, ciclo=ciclo, turno=turno, cargos=cargos)
+    if pendentes is None:
+        return [], 0
+    if pendentes:
+        return [], len(pendentes)
+
     filtro_turno2 = ""
     if turno == 2:
         filtro_turno2 = (
@@ -204,10 +308,10 @@ def montar_avisos(
         },
     ).all()
 
-    finais = _arquivos_finais(session, ciclo, turno)
     por_projeto: Dict[int, AvisoPronto] = {}
-    aguardando: set[int] = set()
     for row in rows:
+        if row.office_code is None or int(row.office_code) not in cargos:
+            continue
         aviso = por_projeto.setdefault(
             row.projeto_id,
             AvisoPronto(
@@ -215,13 +319,10 @@ def montar_avisos(
                 email=row.email,
                 nome=row.nome or "",
                 turno=turno,
+                disparo=disparo,
                 tier_id=row.tier_id,
             ),
         )
-        uf = (row.state or "").lower()
-        if row.office_code is None or (int(row.office_code), uf) not in finais:
-            aguardando.add(row.projeto_id)
-            continue
         if row.situacao:
             situacao = row.situacao
         elif row.votos is not None:
@@ -242,8 +343,7 @@ def montar_avisos(
             }
         )
 
-    prontos = [a for pid, a in por_projeto.items() if pid not in aguardando and a.itens]
-    return prontos, len(aguardando)
+    return [a for a in por_projeto.values() if a.itens], 0
 
 
 def _formata_votos(votos: Optional[int], percentual: Optional[float]) -> str:
@@ -279,14 +379,11 @@ def render_html(aviso: AvisoPronto, *, branding: EmailBranding | None = None) ->
         + "".join(linhas)
         + "</table>"
     )
-    if aviso.turno == 2:
-        intro = "O TSE encerrou a totalização do 2º turno. Veja como ficaram os candidatos que você acompanha:"
-    else:
-        intro = "O TSE encerrou a totalização dos cargos dos candidatos que você acompanha. Veja como cada um ficou:"
+    intro = introducao(aviso.turno, aviso.disparo)
     # O app mora em /app (manage_url); app_url e a home do site.
     link = f"{brand.manage_url.rstrip('/')}/candidaturas"
     replacements = {
-        "{{SUBJECT}}": html.escape(assunto(aviso.turno)),
+        "{{SUBJECT}}": html.escape(assunto(aviso.turno, aviso.disparo)),
         "{{LOGO_URL}}": html.escape(brand.logo_url),
         "{{PRIVACY_URL}}": html.escape(brand.privacy_url),
         "{{MANAGE_URL}}": html.escape(brand.manage_url),
@@ -310,15 +407,16 @@ def _reservar(session: Session, aviso: AvisoPronto, ciclo: str) -> Optional[dict
     session.execute(
         text(
             """
-            INSERT INTO election_result_notice (projeto_id, ciclo, turno, payload, email_status)
-            VALUES (:projeto_id, :ciclo, :turno, :payload, :status)
-            ON CONFLICT (projeto_id, ciclo, turno) DO NOTHING
+            INSERT INTO election_result_notice (projeto_id, ciclo, turno, disparo, payload, email_status)
+            VALUES (:projeto_id, :ciclo, :turno, :disparo, :payload, :status)
+            ON CONFLICT (projeto_id, ciclo, turno, disparo) DO NOTHING
             """
         ),
         {
             "projeto_id": aviso.projeto_id,
             "ciclo": ciclo,
             "turno": aviso.turno,
+            "disparo": aviso.disparo,
             "payload": json.dumps(aviso.payload(), ensure_ascii=False),
             "status": STATUS_PENDING,
         },
@@ -327,9 +425,9 @@ def _reservar(session: Session, aviso: AvisoPronto, ciclo: str) -> Optional[dict
     row = session.execute(
         text(
             "SELECT id, email_status, tentativas, payload FROM election_result_notice "
-            "WHERE projeto_id = :p AND ciclo = :c AND turno = :t"
+            "WHERE projeto_id = :p AND ciclo = :c AND turno = :t AND disparo = :d"
         ),
-        {"p": aviso.projeto_id, "c": ciclo, "t": aviso.turno},
+        {"p": aviso.projeto_id, "c": ciclo, "t": aviso.turno, "d": aviso.disparo},
     ).first()
     return dict(row._mapping) if row else None
 
@@ -341,6 +439,37 @@ def _atualizar(session: Session, notice_id: int, **campos: object) -> None:
         {"id": notice_id, **campos},
     )
     session.commit()
+
+
+def _avisos_da_rodada(
+    session: Session,
+    ciclo: str,
+    turnos: Sequence[int],
+    projeto_id: Optional[int],
+    stats: "EnvioStats",
+):
+    """(turno, disparo, prontos) de cada disparo que ja pode sair nesta rodada."""
+    for turno in turnos:
+        completo_pronto = False
+        for disparo, cargos in disparos_do_turno(turno):
+            if disparo == DISPARO_MAJORITARIOS and completo_pronto:
+                # O completo ja inclui os majoritarios: nao manda os dois juntos.
+                continue
+            prontos, pendentes = montar_avisos(
+                session, ciclo=ciclo, turno=turno, disparo=disparo,
+                cargos=cargos, projeto_id=projeto_id,
+            )
+            if pendentes:
+                stats.aguardando += pendentes
+                logger.info(
+                    "Turno %s %s: aguardando %s arquivo(s) do TSE fechar.", turno, disparo, pendentes
+                )
+                continue
+            if disparo == DISPARO_COMPLETO and arquivos_pendentes(
+                session, ciclo=ciclo, turno=turno, cargos=cargos
+            ) is not None:
+                completo_pronto = True
+            yield turno, disparo, prontos
 
 
 def enviar(
@@ -375,24 +504,25 @@ def enviar(
             return True
         return stats.flag == "all" and aviso.tier_id is not None and int(aviso.tier_id) in liberados
 
-    for turno in turnos:
-        prontos, aguardando = montar_avisos(session, ciclo=ciclo, turno=turno, projeto_id=projeto_id)
-        stats.aguardando += aguardando
+    for turno, disparo, prontos in _avisos_da_rodada(session, ciclo, turnos, projeto_id, stats):
         for aviso in prontos:
             if not recebe(aviso):
                 stats.fora_do_recorte += 1
                 continue
             stats.prontos += 1
-            subject = assunto(turno)
+            subject = assunto(turno, disparo)
 
             if dry_run:
                 corpo = render_html(aviso)
                 if save_html_dir is not None:
                     save_html_dir.mkdir(parents=True, exist_ok=True)
-                    (save_html_dir / f"resultado_{ciclo}_t{turno}_projeto_{aviso.projeto_id}.html").write_text(
+                    (save_html_dir / f"resultado_{ciclo}_t{turno}_{disparo}_projeto_{aviso.projeto_id}.html").write_text(
                         corpo, encoding="utf-8"
                     )
-                logger.info("dry-run: projeto %s turno %s, %s candidato(s)", aviso.projeto_id, turno, len(aviso.itens))
+                logger.info(
+                    "dry-run: projeto %s turno %s %s, %s candidato(s)",
+                    aviso.projeto_id, turno, disparo, len(aviso.itens),
+                )
                 continue
 
             notice = _reservar(session, aviso, ciclo)
@@ -418,7 +548,7 @@ def enviar(
                 stats.sem_email += 1
                 continue
 
-            periodicidade = f"eleicao_{ciclo}_t{turno}"
+            periodicidade = f"eleicao_{ciclo}_t{turno}_{disparo}"
             try:
                 send(render_html(aviso), email, subject)
             except Exception as exc:  # noqa: BLE001 — um e-mail nao derruba os outros
