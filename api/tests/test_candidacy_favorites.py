@@ -99,11 +99,12 @@ def _make_session() -> Session:
             """
             create table election_result_notice (
                 id integer primary key, projeto_id integer not null,
-                ciclo text not null, turno integer not null, payload json not null,
+                ciclo text not null, turno integer not null,
+                disparo text not null default 'completo', payload json not null,
                 email_status text not null default 'pending',
                 tentativas integer not null default 0, ultimo_erro text,
                 created_at datetime, sent_at datetime, seen_at datetime,
-                unique (projeto_id, ciclo, turno)
+                unique (projeto_id, ciclo, turno, disparo)
             )
             """
         )
@@ -269,15 +270,18 @@ def test_cs108_resultado_parcial_nao_libera_vaga(db: Session) -> None:
     assert _acompanhar(client, 11).status_code == 403
 
 
-def _aviso(db: Session, projeto_id: int, *, turno: int = 1, status: str = "sent") -> int:
+def _aviso(
+    db: Session, projeto_id: int, *, turno: int = 1, status: str = "sent", disparo: str = "completo"
+) -> int:
     db.execute(
         text(
-            "insert into election_result_notice (projeto_id, ciclo, turno, payload, email_status) "
-            "values (:p, 'ele2026', :t, :payload, :s)"
+            "insert into election_result_notice (projeto_id, ciclo, turno, disparo, payload, email_status) "
+            "values (:p, 'ele2026', :t, :d, :payload, :s)"
         ),
         {
             "p": projeto_id,
             "t": turno,
+            "d": disparo,
             "payload": '{"turno": %d, "itens": [{"nome": "FULANO", "situacao": "Eleito"}]}' % turno,
             "s": status,
         },
@@ -318,6 +322,19 @@ def test_cs106_segundo_turno_vem_antes(db: Session) -> None:
     segundo = _aviso(db, 10, turno=2)
     client = _client(db)
     assert client.get("/api/projects/me/election-result-notice").json()["id"] == segundo
+
+
+def test_cs119_ver_o_completo_marca_o_de_majoritarios_como_visto(db: Session) -> None:
+    """Fechar o modal do resumo completo nao pode trazer de volta o parcial."""
+    _aviso(db, 10, disparo="majoritarios")
+    completo = _aviso(db, 10, disparo="completo")
+    alheio = _aviso(db, 20, disparo="majoritarios")
+    client = _client(db)
+    assert client.get("/api/projects/me/election-result-notice").json()["id"] == completo
+    assert client.post(f"/api/projects/me/election-result-notice/{completo}/seen").status_code == 204
+    assert client.get("/api/projects/me/election-result-notice").status_code == 204
+    outro = _client(db, token_email="outro@example.com")
+    assert outro.get("/api/projects/me/election-result-notice").json()["id"] == alheio
 
 
 def test_cs106_nao_marca_aviso_de_outra_pessoa(db: Session) -> None:

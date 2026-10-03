@@ -50,13 +50,17 @@ class CandidacyResult(Base):
 class ElectionResultNotice(Base):
     __tablename__ = "election_result_notice"
     __table_args__ = (
-        UniqueConstraint("projeto_id", "ciclo", "turno", name="uq_election_result_notice"),
+        UniqueConstraint(
+            "projeto_id", "ciclo", "turno", "disparo", name="uq_election_result_notice_disparo"
+        ),
     )
 
     id = Column(BigInteger, primary_key=True)
     projeto_id = Column(BigInteger, nullable=False)
     ciclo = Column(Text, nullable=False)
     turno = Column(SmallInteger, nullable=False)
+    # CS-119: "majoritarios" ou "completo" (o 2o turno so tem "completo").
+    disparo = Column(Text, nullable=False, default="completo")
     payload = Column(_JSON, nullable=False)
     email_status = Column(Text, nullable=False)
     tentativas = Column(SmallInteger, nullable=False, default=0)

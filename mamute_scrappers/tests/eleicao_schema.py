@@ -43,11 +43,12 @@ DDL = [
         UNIQUE (candidacy_id, turno))""",
     """CREATE TABLE election_result_notice (
         id INTEGER PRIMARY KEY AUTOINCREMENT, projeto_id INTEGER NOT NULL,
-        ciclo TEXT NOT NULL, turno SMALLINT NOT NULL, payload JSON NOT NULL,
+        ciclo TEXT NOT NULL, turno SMALLINT NOT NULL,
+        disparo TEXT NOT NULL DEFAULT 'completo', payload JSON NOT NULL,
         email_status TEXT NOT NULL DEFAULT 'pending',
         tentativas SMALLINT NOT NULL DEFAULT 0, ultimo_erro TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sent_at TIMESTAMP,
-        seen_at TIMESTAMP, UNIQUE (projeto_id, ciclo, turno))""",
+        seen_at TIMESTAMP, UNIQUE (projeto_id, ciclo, turno, disparo))""",
     """CREATE TABLE email_send_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT, projeto_id BIGINT NOT NULL,
         email TEXT NOT NULL, periodicidade TEXT NOT NULL, status TEXT NOT NULL,
