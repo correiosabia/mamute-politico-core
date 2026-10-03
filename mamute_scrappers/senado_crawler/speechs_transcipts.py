@@ -212,6 +212,28 @@ def _get_text_analyzer(model: Optional[str] = None) -> Optional[PortugueseSpeech
     return analyzer
 
 
+MAX_ANALYSIS_CHARS = 200_000
+_BINARY_SAMPLE_CHARS = 5_000
+_MIN_READABLE_RATIO = 0.85
+_BINARY_MARKERS = ("[Content_Types].xml", "word/document.xml", "%PDF-")
+# "?" fica de fora de propósito: é o caractere que substitui os bytes que não
+# viraram texto quando um arquivo binário chega como string.
+_READABLE_PUNCTUATION = ".,;:!()-\"'%/ºª§$"
+
+
+def _looks_like_binary(text: str) -> bool:
+    """Detecta arquivo binário colado como texto (ex.: .docx inteiro vindo da API da Câmara)."""
+    sample = text[:_BINARY_SAMPLE_CHARS]
+    if not sample:
+        return False
+    if any(marker in sample for marker in _BINARY_MARKERS):
+        return True
+    readable = sum(
+        1 for ch in sample if ch.isalnum() or ch.isspace() or ch in _READABLE_PUNCTUATION
+    )
+    return readable / len(sample) < _MIN_READABLE_RATIO
+
+
 def _delete_speech_keywords(
     session: Session,
     speech_id: int,
@@ -332,6 +354,9 @@ def _update_speech_text_analysis(
         return
 
     speech_text = getattr(record, "speech_text", None)
+    if speech_text and _looks_like_binary(speech_text):
+        logger.warning("Discurso %s parece conteúdo binário; análise ignorada.", speech_id)
+        speech_text = None
     if not speech_text:
         _delete_speech_keywords(session, speech_id, analysis_type=normalized_type)
         _delete_speech_entities(session, speech_id, analysis_type=normalized_type)
@@ -349,8 +374,18 @@ def _update_speech_text_analysis(
                 speech_id,
             )
             return
-        keywords = analyzer.extract_keywords(speech_text, limit=keyword_limit)
-        entities = analyzer.extract_entities(speech_text)
+        # Há discurso com mais de 1 milhão de caracteres (anexo inteiro como
+        # "DISCURSO ENCAMINHADO"), acima do limite do spaCy. Os temas saem do
+        # começo do texto; o resto não muda a nuvem.
+        analysis_text = speech_text[:MAX_ANALYSIS_CHARS]
+        try:
+            keywords = analyzer.extract_keywords(analysis_text, limit=keyword_limit)
+            entities = analyzer.extract_entities(analysis_text)
+        except Exception as exc:  # pragma: no cover - depende do modelo spaCy
+            logger.warning(
+                "Falha na análise spaCy do discurso %s: %s", speech_id, exc
+            )
+            return
     elif normalized_type == "chatgpt":
         if analyze_with_chatgpt is None:
             logger.warning(
@@ -430,8 +465,16 @@ def rebuild_speech_text_analysis(
     batch_size: int = 100,
     limit: Optional[int] = None,
     analysis_type: str = "spacy",
+    parliamentarian_type: Optional[str] = None,
+    only_missing: bool = False,
 ) -> None:
-    """Reexecuta a análise de NLP em lote para registros já existentes."""
+    """Reexecuta a análise de NLP em lote para registros já existentes.
+
+    `parliamentarian_type` restringe a uma casa ("Deputado" ou "Senador").
+    `only_missing` processa só discursos com texto e sem palavras-chave do
+    `analysis_type` informado. Processa do id mais novo para o mais antigo, com
+    paginação por id (o conjunto filtrado encolhe durante a execução).
+    """
     _ensure_db_dependencies()
 
     if _SESSION_SCOPE is None or SpeechesTranscript is None:
@@ -459,15 +502,34 @@ def rebuild_speech_text_analysis(
 
     processed = 0
     with _SESSION_SCOPE() as session:
-        base_query = session.query(SpeechesTranscript.id).order_by(SpeechesTranscript.id)
-        if parliamentarian_code is not None:
+        base_query = session.query(SpeechesTranscript.id)
+        if parliamentarian_code is not None or parliamentarian_type is not None:
             if Parliamentarian is None:
                 raise RuntimeError("Modelo Parliamentarian não carregado.")
-            base_query = base_query.join(Parliamentarian).filter(
-                Parliamentarian.parliamentarian_code == parliamentarian_code
+            base_query = base_query.join(Parliamentarian)
+            if parliamentarian_code is not None:
+                base_query = base_query.filter(
+                    Parliamentarian.parliamentarian_code == parliamentarian_code
+                )
+            if parliamentarian_type is not None:
+                base_query = base_query.filter(Parliamentarian.type == parliamentarian_type)
+        if only_missing:
+            has_keywords = (
+                session.query(SpeechesTranscriptsKeyword.id)
+                .filter(
+                    SpeechesTranscriptsKeyword.speeches_transcripts_id
+                    == SpeechesTranscript.id,
+                    SpeechesTranscriptsKeyword.analysis_type == normalized_type,
+                )
+                .exists()
+            )
+            base_query = base_query.filter(
+                SpeechesTranscript.speech_text.isnot(None),
+                SpeechesTranscript.speech_text != "",
+                ~has_keywords,
             )
 
-        offset = 0
+        last_id: Optional[int] = None
         while True:
             effective_limit = batch_size
             if limit is not None:
@@ -476,14 +538,23 @@ def rebuild_speech_text_analysis(
                     break
                 effective_limit = min(effective_limit, remaining)
 
-            id_batch = [row[0] for row in base_query.offset(offset).limit(effective_limit)]
+            page_query = base_query
+            if last_id is not None:
+                page_query = page_query.filter(SpeechesTranscript.id < last_id)
+            id_batch = [
+                row[0]
+                for row in page_query.order_by(SpeechesTranscript.id.desc()).limit(
+                    effective_limit
+                )
+            ]
             if not id_batch:
                 break
+            last_id = id_batch[-1]
 
             speeches = (
                 session.query(SpeechesTranscript)
                 .filter(SpeechesTranscript.id.in_(id_batch))
-                .order_by(SpeechesTranscript.id)
+                .order_by(SpeechesTranscript.id.desc())
                 .all()
             )
 
@@ -499,7 +570,7 @@ def rebuild_speech_text_analysis(
                 processed += 1
 
             session.commit()
-            offset += len(id_batch)
+            logger.info("Análise textual: %s pronunciamentos processados.", processed)
 
     logger.info(
         "Análise textual reconstruída para %s pronunciamentos (analysis_type=%s).",
