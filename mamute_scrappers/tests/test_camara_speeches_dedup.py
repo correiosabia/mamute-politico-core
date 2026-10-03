@@ -173,3 +173,57 @@ def test_upsert_with_link_still_idempotent(session: Session) -> None:
     assert created_first is True
     assert created_second is False
     assert session.query(SpeechesTranscript).count() == 1
+
+
+def test_speech_text_changed_detects_only_real_text_changes(session: Session) -> None:
+    """A análise textual só deve rodar de novo quando o texto do discurso muda."""
+    record, _ = camara_speeches._upsert_speech(session, _payload())
+    session.flush()
+
+    record, _ = camara_speeches._upsert_speech(session, _payload())
+    assert camara_speeches._speech_text_changed(record) is False
+    session.flush()
+
+    record, _ = camara_speeches._upsert_speech(
+        session, _payload(speech_text="Senhor presidente, peço a palavra pela ordem.")
+    )
+    assert camara_speeches._speech_text_changed(record) is False
+
+    record, _ = camara_speeches._upsert_speech(
+        session, _payload(speech_text="Texto corrigido pela taquigrafia.")
+    )
+    assert camara_speeches._speech_text_changed(record) is True
+
+
+def test_sync_analyzes_new_speeches_and_skips_unchanged(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discurso novo da Câmara precisa gerar palavras-chave (nuvem de temas)."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def fake_scope():
+        yield session
+
+    payloads = [_payload(), _payload(hour_minute="16:00", speech_text="Outro tema.")]
+    analyzed: list = []
+
+    monkeypatch.setattr(camara_speeches, "_SESSION_SCOPE", fake_scope)
+    monkeypatch.setattr(camara_speeches, "REQUEST_DELAY", 0)
+    monkeypatch.setattr(
+        camara_speeches, "_iter_speeches_paginated", lambda *a, **k: list(payloads)
+    )
+    monkeypatch.setattr(camara_speeches, "_build_speech_payload", lambda _c, p: p)
+    monkeypatch.setattr(
+        camara_speeches,
+        "_analyze_speech_text",
+        lambda _s, record: analyzed.append(record.speech_text),
+    )
+
+    camara_speeches.speeches_transcripts(deputado_id=123, data_inicio="2026-06-01")
+    session.flush()
+    assert analyzed == [payloads[0]["speech_text"], "Outro tema."]
+
+    analyzed.clear()
+    camara_speeches.speeches_transcripts(deputado_id=123, data_inicio="2026-06-01")
+    assert analyzed == []

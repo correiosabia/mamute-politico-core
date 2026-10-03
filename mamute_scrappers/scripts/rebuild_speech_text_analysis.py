@@ -22,7 +22,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--parliamentarian",
         type=int,
         dest="parliamentarian_code",
-        help="Filtra por código do parlamentar no Senado.",
+        help="Filtra por código do parlamentar (Câmara ou Senado).",
+    )
+    parser.add_argument(
+        "--parliamentarian-type",
+        choices=("Deputado", "Senador"),
+        help="Restringe a uma casa: Deputado ou Senador.",
+    )
+    parser.add_argument(
+        "--only-missing",
+        action="store_true",
+        help="Processa só discursos com texto e ainda sem palavras-chave.",
     )
     parser.add_argument(
         "--model",
@@ -76,6 +86,8 @@ def main() -> None:
         batch_size=args.batch_size,
         limit=args.limit,
         analysis_type=args.analysis_type,
+        parliamentarian_type=args.parliamentarian_type,
+        only_missing=args.only_missing,
     )
 
 
