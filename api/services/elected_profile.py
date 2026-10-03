@@ -1,13 +1,22 @@
 """Perfil dos eleitos de 2026 no painel admin (CS-107).
 
-Para a matéria do resultado: percentuais de gênero e cor/raça de quem foi
-eleito para o Senado e a Câmara, no Brasil e por UF.
+Para a matéria do resultado: percentuais de gênero, cor/raça e escolaridade
+de quem foi eleito para o Senado e a Câmara, e quantos se reelegeram, no
+Brasil e por UF.
 
 - **Quem foi eleito** vem do resultado oficial gravado pela coleta da CS-106
   (`candidacy_result`), só do 1º turno: Senado e Câmara não têm 2º.
-- **Gênero e cor/raça** vêm da candidatura (`candidacy.gender`/`race`, CS-63),
-  porque o arquivo de resultado do TSE não traz esses campos. O cruzamento é
-  pelo sequencial do candidato (`sqcand` = `tse_candidate_id`), feito na coleta.
+- **Gênero, cor/raça e escolaridade** vêm da candidatura
+  (`candidacy.gender`/`race`/`education`, CS-63), porque o arquivo de
+  resultado do TSE não traz esses campos. O cruzamento é pelo sequencial do
+  candidato (`sqcand` = `tse_candidate_id`), feito na coleta.
+- **Reeleito (CS-120)** = eleito para a mesma casa em que exerce mandato hoje:
+  a candidatura aponta (`candidacy.parliamentarian_id`) para parlamentar com
+  `status = 'Exercício'` do mesmo tipo (Deputado na Câmara, Senador no
+  Senado). Suplente em exercício conta; deputado eleito senador não. O campo
+  `st_REELEICAO` do TSE não serve: vem `false` para todo mundo em 2026.
+  Deputados casam por CPF; senadores, por nome (a base não tem o CPF deles).
+  "Em exercício hoje" vale até a posse de 01/02/2027.
 - **Nunca parcial.** Uma UF só entra quando o arquivo dela está com a
   totalização encerrada (`tse_result_file.totalizacao_final`), e o total do
   Brasil só aparece com as 27 encerradas.
@@ -48,6 +57,19 @@ CASAS = (
 _ORDEM_GENERO = ("FEMININO", "MASCULINO")
 _ORDEM_COR_RACA = ("BRANCA", "PRETA", "PARDA", "AMARELA", "INDÍGENA")
 _PRETOS_E_PARDOS = frozenset({"PRETA", "PARDA"})
+_ORDEM_ESCOLARIDADE = (
+    "SUPERIOR COMPLETO",
+    "SUPERIOR INCOMPLETO",
+    "ENSINO MÉDIO COMPLETO",
+    "ENSINO MÉDIO INCOMPLETO",
+    "ENSINO FUNDAMENTAL COMPLETO",
+    "ENSINO FUNDAMENTAL INCOMPLETO",
+    "LÊ E ESCREVE",
+)
+_SUPERIOR_COMPLETO = "SUPERIOR COMPLETO"
+
+# Linha agregada: (gênero, cor/raça, escolaridade, reeleito, quantidade).
+Linha = tuple[Optional[str], Optional[str], Optional[str], bool, int]
 
 
 def _tem_coluna(db: Session, tabela: str, coluna: str) -> bool:
@@ -100,8 +122,8 @@ def _arquivos(db: Session, ciclo: str) -> dict[tuple[int, str], dict[str, Any]]:
     }
 
 
-def _eleitos(db: Session, ano: int) -> dict[tuple[int, str], list[tuple[Optional[str], Optional[str], int]]]:
-    """Eleitos encontrados na base, agrupados por (cargo, UF), gênero e cor/raça.
+def _eleitos(db: Session, ano: int) -> dict[tuple[int, str], list[Linha]]:
+    """Eleitos encontrados na base, agrupados por (cargo, UF) e perfil.
 
     Eleito = `eleito` com a situação começando por "Eleito": o TSE também marca
     `e = "s"` quem foi ao 2º turno. Mesma regra de `foi_eleito` na coleta.
@@ -110,25 +132,37 @@ def _eleitos(db: Session, ano: int) -> dict[tuple[int, str], list[tuple[Optional
         text(
             """
             SELECT c.office_code AS cargo, UPPER(TRIM(c.state)) AS uf,
-                   c.gender AS genero, c.race AS cor_raca, COUNT(*) AS n
+                   c.gender AS genero, c.race AS cor_raca, c.education AS escolaridade,
+                   CASE WHEN p.status = 'Exercício'
+                         AND ((c.office_code = 6 AND p.type = 'Deputado')
+                              OR (c.office_code = 5 AND p.type = 'Senador'))
+                        THEN 1 ELSE 0 END AS reeleito,
+                   COUNT(*) AS n
             FROM candidacy_result cr
             JOIN candidacy c ON c.id = cr.candidacy_id
+            LEFT JOIN parliamentarian p ON p.id = c.parliamentarian_id
             WHERE c.election_year = :ano
               AND cr.turno = :turno
               AND cr.totalizacao_final
               AND cr.eleito
               AND LOWER(cr.situacao) LIKE 'eleito%'
               AND c.office_code IN (5, 6)
-            GROUP BY c.office_code, UPPER(TRIM(c.state)), c.gender, c.race
+            GROUP BY 1, 2, 3, 4, 5, 6
             """
         ),
         {"ano": ano, "turno": TURNO},
     ).mappings()
-    grupos: dict[tuple[int, str], list[tuple[Optional[str], Optional[str], int]]] = {}
+    grupos: dict[tuple[int, str], list[Linha]] = {}
     for r in rows:
         chave = (int(r["cargo"]), r["uf"])
         grupos.setdefault(chave, []).append(
-            (_texto(r["genero"]), _texto(r["cor_raca"]), int(r["n"]))
+            (
+                _texto(r["genero"]),
+                _texto(r["cor_raca"]),
+                _texto(r["escolaridade"]),
+                bool(r["reeleito"]),
+                int(r["n"]),
+            )
         )
     return grupos
 
@@ -154,15 +188,17 @@ def _distribuicao(
     ]
 
 
-def _perfil(
-    linhas: Iterable[tuple[Optional[str], Optional[str], int]],
-    eleitos_no_tse: Optional[int],
-) -> dict[str, Any]:
+def _perfil(linhas: Iterable[Linha], eleitos_no_tse: Optional[int]) -> dict[str, Any]:
     genero: Counter = Counter()
     cor_raca: Counter = Counter()
-    for g, r, n in linhas:
+    escolaridade: Counter = Counter()
+    reeleitos = 0
+    for g, r, e, reeleito, n in linhas:
         genero[g] += n
         cor_raca[r] += n
+        escolaridade[e] += n
+        if reeleito:
+            reeleitos += n
     total = sum(genero.values())
     pretos_e_pardos = sum(n for valor, n in cor_raca.items() if valor in _PRETOS_E_PARDOS)
     return {
@@ -174,6 +210,12 @@ def _perfil(
             "eleitos": pretos_e_pardos,
             "percentual": _pct(pretos_e_pardos, total),
         },
+        "escolaridade": _distribuicao(escolaridade, total, _ORDEM_ESCOLARIDADE),
+        "superior_completo": {
+            "eleitos": escolaridade[_SUPERIOR_COMPLETO],
+            "percentual": _pct(escolaridade[_SUPERIOR_COMPLETO], total),
+        },
+        "reeleitos": {"eleitos": reeleitos, "percentual": _pct(reeleitos, total)},
     }
 
 
@@ -187,10 +229,10 @@ def _casa(
     nome: str,
     cargo: int,
     arquivos: dict[tuple[int, str], dict[str, Any]],
-    eleitos: dict[tuple[int, str], list[tuple[Optional[str], Optional[str], int]]],
+    eleitos: dict[tuple[int, str], list[Linha]],
 ) -> dict[str, Any]:
     por_uf: list[dict[str, Any]] = []
-    linhas_brasil: list[tuple[Optional[str], Optional[str], int]] = []
+    linhas_brasil: list[Linha] = []
     eleitos_no_tse: list[Optional[int]] = []
     atualizacoes: list[Any] = []
     for uf in UFS:
@@ -231,6 +273,7 @@ def _casa(
         "categorias": {
             "genero": _categorias(perfis, "genero", _ORDEM_GENERO),
             "cor_raca": _categorias(perfis, "cor_raca", _ORDEM_COR_RACA),
+            "escolaridade": _categorias(perfis, "escolaridade", _ORDEM_ESCOLARIDADE),
         },
         "brasil": brasil,
         "por_uf": por_uf,

@@ -28,7 +28,10 @@ def _make_session(*, com_eleitos: bool = True) -> Session:
         conn.exec_driver_sql(
             "create table candidacy (id integer primary key, election_year integer not null, "
             "tse_candidate_id bigint not null, office_code integer, state text, "
-            "gender text, race text)"
+            "gender text, race text, education text, parliamentarian_id integer)"
+        )
+        conn.exec_driver_sql(
+            "create table parliamentarian (id integer primary key, type text, status text)"
         )
         conn.exec_driver_sql(
             "create table candidacy_result (id integer primary key autoincrement, "
@@ -78,6 +81,8 @@ def _candidato(
     *,
     genero: str | None = "MASCULINO",
     raca: str | None = "BRANCA",
+    escolaridade: str | None = "SUPERIOR COMPLETO",
+    parlamentar: tuple[str, str] | None = None,
     situacao: str = "Eleito",
     eleito: bool = True,
     final: bool = True,
@@ -85,12 +90,20 @@ def _candidato(
     ano: int = 2026,
 ) -> None:
     cid = next(_ids)
+    parlamentar_id = None
+    if parlamentar is not None:  # (type, status) do parlamentar vinculado
+        parlamentar_id = 50000 + cid
+        db.execute(
+            text("insert into parliamentarian (id, type, status) values (:id, :t, :s)"),
+            {"id": parlamentar_id, "t": parlamentar[0], "s": parlamentar[1]},
+        )
     db.execute(
         text(
-            "insert into candidacy (id, election_year, tse_candidate_id, office_code, state, gender, race) "
-            "values (:id, :ano, :sq, :cargo, :uf, :g, :r)"
+            "insert into candidacy (id, election_year, tse_candidate_id, office_code, state, gender, race, "
+            "education, parliamentarian_id) values (:id, :ano, :sq, :cargo, :uf, :g, :r, :e, :p)"
         ),
-        {"id": cid, "ano": ano, "sq": 900000 + cid, "cargo": cargo, "uf": uf, "g": genero, "r": raca},
+        {"id": cid, "ano": ano, "sq": 900000 + cid, "cargo": cargo, "uf": uf, "g": genero, "r": raca,
+         "e": escolaridade, "p": parlamentar_id},
     )
     db.execute(
         text(
@@ -146,6 +159,41 @@ def test_percentuais_da_uf_encerrada() -> None:
     assert camara["categorias"]["cor_raca"] == ["BRANCA", "PRETA", "PARDA", None]
     assert camara["ufs_encerradas"] == 1
     assert camara["tse_atualizado_em"].startswith("2026-10-04")
+
+
+def test_escolaridade_em_ordem_de_nivel_e_superior_completo() -> None:
+    db = _make_session()
+    _arquivo(db, "SP", DEP_FEDERAL)
+    _candidato(db, "SP", DEP_FEDERAL, escolaridade="ENSINO MÉDIO COMPLETO")
+    _candidato(db, "SP", DEP_FEDERAL, escolaridade="SUPERIOR COMPLETO")
+    _candidato(db, "SP", DEP_FEDERAL, escolaridade="SUPERIOR COMPLETO")
+    _candidato(db, "SP", DEP_FEDERAL, escolaridade="LÊ E ESCREVE")
+
+    camara = _casa(elected_profile(db), "camara")
+    perfil = _uf(camara, "SP")["perfil"]
+    assert [item["valor"] for item in perfil["escolaridade"]] == [
+        "SUPERIOR COMPLETO", "ENSINO MÉDIO COMPLETO", "LÊ E ESCREVE",
+    ]
+    assert perfil["superior_completo"] == {"eleitos": 2, "percentual": 50.0}
+    assert camara["categorias"]["escolaridade"] == [
+        "SUPERIOR COMPLETO", "ENSINO MÉDIO COMPLETO", "LÊ E ESCREVE",
+    ]
+
+
+def test_reeleito_e_quem_exerce_mandato_na_mesma_casa() -> None:
+    db = _make_session()
+    _arquivo(db, "SP", DEP_FEDERAL)
+    _arquivo(db, "SP", SENADOR)
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Exercício"))  # reeleito
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Fora de exercício"))  # ex-deputado
+    _candidato(db, "SP", DEP_FEDERAL)  # novato, sem vínculo
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Senador", "Exercício"))  # senador virando deputado
+    _candidato(db, "SP", SENADOR, parlamentar=("Deputado", "Exercício"))  # deputado virando senador
+    _candidato(db, "SP", SENADOR, parlamentar=("Senador", "Exercício"))  # reeleito (inclui suplente)
+
+    resultado = elected_profile(db)
+    assert _uf(_casa(resultado, "camara"), "SP")["perfil"]["reeleitos"] == {"eleitos": 1, "percentual": 25.0}
+    assert _uf(_casa(resultado, "senado"), "SP")["perfil"]["reeleitos"] == {"eleitos": 1, "percentual": 50.0}
 
 
 def test_so_conta_eleito_de_fato_no_resultado_encerrado() -> None:
