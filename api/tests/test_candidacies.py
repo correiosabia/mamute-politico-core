@@ -152,6 +152,7 @@ def _make_session() -> Session:
                 destinacao_voto text,
                 totalizacao_final boolean not null default 0,
                 tse_atualizado_em datetime, coletado_em datetime,
+                percentual_apurado numeric,
                 unique (candidacy_id, turno)
             )
             """
@@ -416,3 +417,32 @@ def test_cs108_filtro_segundo_turno(client, session):
     _resultado(session, 1, 1, "Eleito", True)
     resp = client.get("/api/candidacies/", params={"resultado": "segundo_turno"})
     assert [c["id"] for c in resp.json()] == [5]
+
+
+def test_cs127_apuracao_parcial_aparece_antes_de_encerrar(client, session):
+    from sqlalchemy import text
+
+    session.execute(
+        text(
+            "insert into candidacy_result (candidacy_id, turno, codigo_eleicao, votos, "
+            "percentual, totalizacao_final, percentual_apurado) "
+            "values (3, 1, 6259, 123456, 12.34, 0, 47.26)"
+        )
+    )
+    session.commit()
+    body = {c["id"]: c for c in client.get("/api/candidacies/").json()}
+    assert body[3]["resultado"] is None  # situacao oficial so com a totalizacao encerrada
+    apuracao = body[3]["apuracao"]
+    assert apuracao["votos"] == 123456
+    assert apuracao["percentual"] == 12.34
+    assert apuracao["percentual_apurado"] == 47.26
+    assert apuracao["totalizacao_final"] is False
+    assert body[1]["apuracao"] is None
+
+
+def test_cs127_apuracao_mostra_o_turno_mais_recente(client, session):
+    _resultado(session, 5, 1, "2º turno", True)
+    _resultado(session, 5, 2, None, None, final=False)
+    body = {c["id"]: c for c in client.get("/api/candidacies/").json()}
+    assert body[5]["apuracao"]["turno"] == 2
+    assert body[5]["resultado"]["turno"] == 1

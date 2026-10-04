@@ -20,6 +20,10 @@ Brasil e por UF.
 - **Nunca parcial.** Uma UF só entra quando o arquivo dela está com a
   totalização encerrada (`tse_result_file.totalizacao_final`), e o total do
   Brasil só aparece com as 27 encerradas.
+- **Andamento (CS-127).** UF ainda aberta traz o % de urnas apuradas do
+  arquivo do TSE (`percentual_apurado`) e a hora dele, para a tela mostrar o
+  andamento. Eleito continua só com a UF encerrada: durante a apuração o TSE
+  não marca ninguém.
 - **Conferência.** `eleitos_no_tse` é quantos eleitos o arquivo do TSE traz,
   casados ou não com a base. Se for maior que os eleitos encontrados, a tela
   avisa que o percentual daquela UF não cobre todo mundo. `None` = arquivo
@@ -99,10 +103,16 @@ def _arquivos(db: Session, ciclo: str) -> dict[tuple[int, str], dict[str, Any]]:
         if _tem_coluna(db, "tse_result_file", "eleitos_no_arquivo")
         else "NULL"
     )
+    apurado = (
+        "percentual_apurado"
+        if _tem_coluna(db, "tse_result_file", "percentual_apurado")
+        else "NULL"
+    )
     rows = db.execute(
         text(
             f"""
             SELECT cargo_codigo, uf, totalizacao_final, tse_atualizado_em,
+                   {apurado} AS percentual_apurado,
                    {eleitos} AS eleitos_no_tse
             FROM tse_result_file
             WHERE ciclo = :ciclo AND turno = :turno AND cargo_codigo IN (5, 6)
@@ -114,6 +124,9 @@ def _arquivos(db: Session, ciclo: str) -> dict[tuple[int, str], dict[str, Any]]:
         (int(r["cargo_codigo"]), r["uf"].upper()): {
             "final": bool(r["totalizacao_final"]),
             "tse_atualizado_em": r["tse_atualizado_em"],
+            "percentual_apurado": (
+                float(r["percentual_apurado"]) if r["percentual_apurado"] is not None else None
+            ),
             "eleitos_no_tse": (
                 int(r["eleitos_no_tse"]) if r["eleitos_no_tse"] is not None else None
             ),
@@ -239,7 +252,15 @@ def _casa(
         arquivo = arquivos.get((cargo, uf))
         encerrada = bool(arquivo and arquivo["final"])
         if not encerrada:
-            por_uf.append({"uf": uf, "encerrada": False, "tse_atualizado_em": None, "perfil": None})
+            por_uf.append(
+                {
+                    "uf": uf,
+                    "encerrada": False,
+                    "tse_atualizado_em": _iso(arquivo["tse_atualizado_em"]) if arquivo else None,
+                    "percentual_apurado": arquivo["percentual_apurado"] if arquivo else None,
+                    "perfil": None,
+                }
+            )
             continue
         linhas = eleitos.get((cargo, uf), [])
         linhas_brasil.extend(linhas)
@@ -251,6 +272,7 @@ def _casa(
                 "uf": uf,
                 "encerrada": True,
                 "tse_atualizado_em": _iso(arquivo["tse_atualizado_em"]),
+                "percentual_apurado": arquivo["percentual_apurado"],
                 "perfil": _perfil(linhas, arquivo["eleitos_no_tse"]),
             }
         )

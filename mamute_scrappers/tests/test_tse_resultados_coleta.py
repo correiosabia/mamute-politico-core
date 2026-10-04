@@ -118,6 +118,20 @@ def test_arquivo_aberto_e_baixado_de_novo_e_atualizado() -> None:
     assert finais == 2
 
 
+def test_grava_percentual_apurado_durante_a_apuracao() -> None:
+    # CS-127: o card mostra votos parciais com o % de urnas apuradas.
+    session = _sessao_com_candidatos()
+    parcial = _load("sim-sp-governador.json")
+    parcial["tf"] = "n"
+    parcial["s"] = {**(parcial.get("s") or {}), "pst": "51,51"}
+    coletar(session, base=BASE, http_get=FakeTse({GOV_SP: parcial}), hoje=DOMINGO)
+    assert float(session.execute(text("SELECT percentual_apurado FROM tse_result_file")).scalar()) == 51.51
+    apurados = session.execute(
+        text("SELECT DISTINCT percentual_apurado FROM candidacy_result")
+    ).scalars().all()
+    assert [float(v) for v in apurados] == [51.51]
+
+
 def test_dry_run_nao_grava() -> None:
     session = _sessao_com_candidatos()
     tse = FakeTse({GOV_SP: _load("sim-sp-governador.json")})
