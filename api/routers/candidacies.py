@@ -4,7 +4,9 @@ from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import asc, bindparam, desc, func, or_, select, text
+from sqlalchemy import inspect as sqlalchemy_inspect
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 try:
@@ -66,6 +68,8 @@ class CandidacyOut(BaseModel):
     match_status: str
     # Resultado oficial encerrado (CS-106/CS-108); None antes da totalizacao.
     resultado: Optional["CandidacyResultOut"] = None
+    # Contagem do TSE no turno mais recente, parcial ou encerrada (CS-127).
+    apuracao: Optional["CandidacyApuracaoOut"] = None
     # Vice (Presidente, Governador) ou suplentes (Senador) da chapa. Desde 2026
     # eles não têm linha própria: só existem dentro do detalhe do titular.
     vices: List[ViceOut] = []
@@ -85,7 +89,69 @@ class CandidacyResultOut(BaseModel):
     fora_da_disputa: bool = False
 
 
+class CandidacyApuracaoOut(BaseModel):
+    """Votos do TSE no turno mais recente, durante e depois da apuracao (CS-127).
+
+    Durante a apuracao o TSE nao marca eleitos (`e = "n"`, `st` vazio), mas
+    publica os votos parciais e o % de secoes totalizadas. O card mostra isso
+    ate a totalizacao encerrar; a situacao oficial continua em `resultado`.
+    """
+
+    turno: int
+    votos: Optional[int] = None
+    # % dos votos validos, como o TSE publica (`pvap`).
+    percentual: Optional[float] = None
+    # % de urnas (secoes) apuradas no arquivo do cargo/UF; None antes da cs127.
+    percentual_apurado: Optional[float] = None
+    totalizacao_final: bool = False
+    tse_atualizado_em: Optional[str] = None
+
+
 SITUACAO_SEGUNDO_TURNO = "2º turno"
+
+
+def _tem_coluna_apurado(db: Session) -> bool:
+    """`percentual_apurado` so existe depois da migration cs127 (o deploy sobe
+    a API antes do alembic)."""
+    try:
+        colunas = sqlalchemy_inspect(db.get_bind()).get_columns("candidacy_result")
+    except SQLAlchemyError:
+        return False
+    return any(c.get("name") == "percentual_apurado" for c in colunas)
+
+
+def _float(valor: Any) -> Optional[float]:
+    return float(valor) if valor is not None else None
+
+
+def _apuracao_por_candidatura(db: Session, ids: List[int]) -> dict[int, CandidacyApuracaoOut]:
+    if not ids:
+        return {}
+    apurado = "percentual_apurado" if _tem_coluna_apurado(db) else "NULL"
+    # Bind por nome (expanding) para funcionar igual em Postgres e SQLite.
+    stmt = text(
+        f"""
+        SELECT candidacy_id, turno, votos, percentual, totalizacao_final,
+               tse_atualizado_em, {apurado} AS percentual_apurado
+        FROM candidacy_result
+        WHERE candidacy_id IN :ids
+        ORDER BY turno
+        """
+    ).bindparams(bindparam("ids", expanding=True))
+    out: dict[int, CandidacyApuracaoOut] = {}
+    for r in db.execute(stmt, {"ids": ids}).mappings():  # o turno mais recente prevalece
+        atualizado = r["tse_atualizado_em"]
+        out[int(r["candidacy_id"])] = CandidacyApuracaoOut(
+            turno=int(r["turno"]),
+            votos=int(r["votos"]) if r["votos"] is not None else None,
+            percentual=_float(r["percentual"]),
+            percentual_apurado=_float(r["percentual_apurado"]),
+            totalizacao_final=bool(r["totalizacao_final"]),
+            tse_atualizado_em=(
+                atualizado.isoformat() if hasattr(atualizado, "isoformat") else atualizado
+            ),
+        )
+    return out
 
 
 def _resultados_por_candidatura(db: Session, ids: List[int]) -> dict[int, CandidacyResultOut]:
@@ -357,10 +423,13 @@ def list_candidacies(
     stmt = stmt.order_by(asc(Candidacy.id)).offset(offset).limit(limit)
 
     candidacies = db.execute(stmt).scalars().all()
-    resultados = _resultados_por_candidatura(db, [int(c.id) for c in candidacies])
+    ids = [int(c.id) for c in candidacies]
+    resultados = _resultados_por_candidatura(db, ids)
+    apuracoes = _apuracao_por_candidatura(db, ids)
     out = []
     for c in candidacies:
         item = _serialize(c)
         item.resultado = resultados.get(int(c.id))
+        item.apuracao = apuracoes.get(int(c.id))
         out.append(item)
     return out

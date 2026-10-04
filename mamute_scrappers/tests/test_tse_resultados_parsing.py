@@ -114,3 +114,15 @@ def test_foi_eleito_nao_conta_quem_foi_ao_segundo_turno() -> None:
 
     aberto = parse_result_file(_load("oficial-br-presidente-aberto.json"))
     assert not any(foi_eleito(c) for c in aberto.candidatos)
+
+
+def test_percentual_apurado_vem_do_resumo_do_arquivo() -> None:
+    # CS-127: "% de urnas apuradas" = secoes totalizadas (`s.pst`).
+    parcial = _load("sim-sp-governador.json")
+    parcial["tf"] = "n"
+    parcial["s"] = {**(parcial.get("s") or {}), "pst": "47,26"}
+    assert parse_result_file(parcial).percentual_apurado == Decimal("47.26")
+
+    sem_resumo = _load("sim-sp-governador.json")
+    sem_resumo.pop("s", None)
+    assert parse_result_file(sem_resumo).percentual_apurado is None

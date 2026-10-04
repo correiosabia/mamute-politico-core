@@ -45,7 +45,7 @@ def _make_session(*, com_eleitos: bool = True) -> Session:
             "cargo_codigo integer not null, totalizacao_final boolean not null default 0, "
             "tse_atualizado_em timestamp, candidatos_no_arquivo integer not null default 0, "
             "candidatos_casados integer not null default 0"
-            + (", eleitos_no_arquivo integer" if com_eleitos else "")
+            + (", eleitos_no_arquivo integer, percentual_apurado numeric" if com_eleitos else "")
             + ", unique (codigo_eleicao, uf, cargo_codigo))"
         )
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
@@ -58,6 +58,7 @@ def _arquivo(
     *,
     final: bool = True,
     eleitos: int | None = None,
+    apurado: float | None = None,
     atualizado: str = "2026-10-04 21:30:00",
     ciclo: str = "ele2026",
 ) -> None:
@@ -66,10 +67,13 @@ def _arquivo(
     if eleitos is not None:
         colunas += ", eleitos_no_arquivo"
         valores += ", :eleitos"
+    if apurado is not None:
+        colunas += ", percentual_apurado"
+        valores += ", :apurado"
     db.execute(
         text(f"insert into tse_result_file ({colunas}) values ({valores})"),
         {"ciclo": ciclo, "uf": uf.lower(), "cargo": cargo, "final": final,
-         "atualizado": atualizado, "eleitos": eleitos},
+         "atualizado": atualizado, "eleitos": eleitos, "apurado": apurado},
     )
     db.commit()
 
@@ -219,13 +223,18 @@ def test_so_conta_eleito_de_fato_no_resultado_encerrado() -> None:
 
 def test_uf_com_totalizacao_aberta_nao_entra_nem_no_brasil() -> None:
     db = _make_session()
-    _arquivo(db, "RJ", DEP_FEDERAL, final=False)
+    _arquivo(db, "RJ", DEP_FEDERAL, final=False, apurado=47.26)
     _candidato(db, "RJ", DEP_FEDERAL)  # mesmo marcada final, o arquivo esta aberto
     _arquivo(db, "SP", DEP_FEDERAL)
     _candidato(db, "SP", DEP_FEDERAL)
 
     camara = _casa(elected_profile(db), "camara")
-    assert _uf(camara, "RJ") == {"uf": "RJ", "encerrada": False, "tse_atualizado_em": None, "perfil": None}
+    rj = _uf(camara, "RJ")
+    # CS-127: UF aberta mostra o andamento da apuracao, sem perfil.
+    assert rj["encerrada"] is False and rj["perfil"] is None
+    assert rj["percentual_apurado"] == 47.26
+    assert rj["tse_atualizado_em"] is not None
+    assert _uf(camara, "MG")["percentual_apurado"] is None  # sem arquivo coletado
     assert "RJ" in camara["ufs_aguardando"] and "SP" not in camara["ufs_aguardando"]
     assert camara["brasil"] is None
 

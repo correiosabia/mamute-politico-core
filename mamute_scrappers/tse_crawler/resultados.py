@@ -133,14 +133,18 @@ def _mapa_candidaturas(session: Session, ano: int) -> Dict[int, int]:
     return {int(r.tse_candidate_id): int(r.id) for r in rows}
 
 
+def _tem_coluna(session: Session, tabela: str, coluna: str) -> bool:
+    try:
+        colunas = inspect(session.get_bind()).get_columns(tabela)
+    except SQLAlchemyError:
+        return True
+    return any(c.get("name") == coluna for c in colunas)
+
+
 def _tem_coluna_eleitos(session: Session) -> bool:
     """`eleitos_no_arquivo` (CS-107) ainda nao existe na janela do deploy
     antes da migration cs107a1b2c3d4; ate la a coleta segue sem ela."""
-    try:
-        colunas = inspect(session.get_bind()).get_columns("tse_result_file")
-    except SQLAlchemyError:
-        return True
-    return any(c.get("name") == "eleitos_no_arquivo" for c in colunas)
+    return _tem_coluna(session, "tse_result_file", "eleitos_no_arquivo")
 
 
 def _arquivos_finais(
@@ -157,10 +161,14 @@ def _arquivos_finais(
     return {(int(r.codigo_eleicao), r.uf, int(r.cargo_codigo)) for r in rows}
 
 
-def _upsert_arquivo(*, com_eleitos: bool):
+def _upsert_arquivo(*, com_eleitos: bool, com_apurado: bool = False):
     coluna = ", eleitos_no_arquivo" if com_eleitos else ""
     valor = ", :eleitos" if com_eleitos else ""
     atualiza = "eleitos_no_arquivo = excluded.eleitos_no_arquivo," if com_eleitos else ""
+    if com_apurado:
+        coluna += ", percentual_apurado"
+        valor += ", :percentual_apurado"
+        atualiza += "percentual_apurado = excluded.percentual_apurado,"
     return text(
         f"""
         INSERT INTO tse_result_file
@@ -181,27 +189,34 @@ def _upsert_arquivo(*, com_eleitos: bool):
         """
     )
 
-_UPSERT_RESULTADO = text(
-    """
-    INSERT INTO candidacy_result
-        (candidacy_id, turno, codigo_eleicao, situacao, eleito, votos,
-         percentual, destinacao_voto, totalizacao_final, tse_atualizado_em,
-         coletado_em)
-    VALUES
-        (:candidacy_id, :turno, :codigo_eleicao, :situacao, :eleito, :votos,
-         :percentual, :destinacao_voto, :final, :atualizado_em, :agora)
-    ON CONFLICT (candidacy_id, turno) DO UPDATE SET
-        codigo_eleicao = excluded.codigo_eleicao,
-        situacao = excluded.situacao,
-        eleito = excluded.eleito,
-        votos = excluded.votos,
-        percentual = excluded.percentual,
-        destinacao_voto = excluded.destinacao_voto,
-        totalizacao_final = excluded.totalizacao_final,
-        tse_atualizado_em = excluded.tse_atualizado_em,
-        coletado_em = excluded.coletado_em
-    """
-)
+def _upsert_resultado(*, com_apurado: bool):
+    """Upsert de `candidacy_result`. `percentual_apurado` so existe depois da
+    migration cs127 (o deploy sobe o codigo antes do alembic)."""
+    coluna = ", percentual_apurado" if com_apurado else ""
+    valor = ", :percentual_apurado" if com_apurado else ""
+    atualiza = "percentual_apurado = excluded.percentual_apurado," if com_apurado else ""
+    return text(
+        f"""
+        INSERT INTO candidacy_result
+            (candidacy_id, turno, codigo_eleicao, situacao, eleito, votos,
+             percentual, destinacao_voto, totalizacao_final, tse_atualizado_em,
+             coletado_em{coluna})
+        VALUES
+            (:candidacy_id, :turno, :codigo_eleicao, :situacao, :eleito, :votos,
+             :percentual, :destinacao_voto, :final, :atualizado_em, :agora{valor})
+        ON CONFLICT (candidacy_id, turno) DO UPDATE SET
+            codigo_eleicao = excluded.codigo_eleicao,
+            situacao = excluded.situacao,
+            eleito = excluded.eleito,
+            votos = excluded.votos,
+            percentual = excluded.percentual,
+            destinacao_voto = excluded.destinacao_voto,
+            totalizacao_final = excluded.totalizacao_final,
+            tse_atualizado_em = excluded.tse_atualizado_em,
+            {atualiza}
+            coletado_em = excluded.coletado_em
+        """
+    )
 
 
 def coletar(
@@ -233,7 +248,9 @@ def coletar(
     candidaturas = _mapa_candidaturas(session, ano_do_ciclo(ciclo))
     com_eleitos = _tem_coluna_eleitos(session)
     ja_finais = _arquivos_finais(session, ciclo, com_eleitos=com_eleitos)
-    upsert_arquivo = _upsert_arquivo(com_eleitos=com_eleitos)
+    com_apurado = _tem_coluna(session, "candidacy_result", "percentual_apurado")
+    upsert_arquivo = _upsert_arquivo(com_eleitos=com_eleitos, com_apurado=com_apurado)
+    upsert_resultado = _upsert_resultado(com_apurado=com_apurado)
 
     for eleicao in eleicoes:
         if eleicao.data > hoje and not ignorar_data:
@@ -278,6 +295,11 @@ def coletar(
                 continue
 
             agora = datetime.now(timezone.utc)
+            apurado = (
+                float(arquivo.percentual_apurado)
+                if arquivo.percentual_apurado is not None
+                else None
+            )
             session.execute(
                 upsert_arquivo,
                 {
@@ -291,12 +313,13 @@ def coletar(
                     "no_arquivo": len(arquivo.candidatos),
                     "casados": len(casados),
                     "eleitos": sum(1 for c in arquivo.candidatos if foi_eleito(c)),
+                    "percentual_apurado": apurado,
                     "agora": agora,
                 },
             )
             if casados:
                 session.execute(
-                    _UPSERT_RESULTADO,
+                    upsert_resultado,
                     [
                         {
                             "candidacy_id": candidacy_id,
@@ -309,6 +332,7 @@ def coletar(
                             "destinacao_voto": c.destinacao_voto,
                             "final": arquivo.final,
                             "atualizado_em": arquivo.atualizado_em,
+                            "percentual_apurado": apurado,
                             "agora": agora,
                         }
                         for candidacy_id, c in casados

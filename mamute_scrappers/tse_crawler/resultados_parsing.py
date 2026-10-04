@@ -77,6 +77,8 @@ class ArquivoResultado:
     final: bool
     atualizado_em: Optional[datetime]
     candidatos: List[CandidatoResultado] = field(default_factory=list)
+    # % de secoes totalizadas (`s.pst`), o "% de urnas apuradas" (CS-127).
+    percentual_apurado: Optional[Decimal] = None
 
 
 def _parse_date_br(raw: Any) -> Optional[date]:
@@ -197,6 +199,7 @@ def parse_result_file(payload: dict) -> ArquivoResultado:
         final=(payload.get("tf") or "").strip().lower() == "s",
         atualizado_em=_parse_timestamp(payload.get("dt"), payload.get("ht")),
         candidatos=candidatos,
+        percentual_apurado=_parse_percent((payload.get("s") or {}).get("pst")),
     )
 
 
