@@ -215,7 +215,9 @@ class ProjetosCandidacy(Base):
     Apenas o REGISTRO da escolha: nenhuma feature consome este vinculo ainda
     (decisao de produto em 2026-08-23) — o dado existe para, na apuracao,
     podermos contar "voce acompanhou N candidatos, M foram eleitos". Sem cota
-    e sem soft-delete: desmarcar apaga a linha.
+    e sem soft-delete: desmarcar apaga a linha. O que estava selecionado no
+    fechamento de cada turno fica em `projetos_candidacy_turno` (CS-129), que
+    nao muda quando a pessoa desmarca.
     """
 
     __tablename__ = "projetos_candidacy"

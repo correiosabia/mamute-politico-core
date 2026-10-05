@@ -85,6 +85,17 @@ def _make_session() -> Session:
         )
         conn.exec_driver_sql(
             """
+            create table projetos_candidacy_turno (
+                id integer primary key, projeto_id integer not null,
+                candidacy_id integer not null, ciclo text not null,
+                turno integer not null, selecionado_em datetime,
+                registrado_em datetime not null default current_timestamp,
+                unique (projeto_id, candidacy_id, ciclo, turno)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            """
             create table candidacy_result (
                 id integer primary key, candidacy_id integer not null,
                 turno integer not null, codigo_eleicao integer not null,
@@ -386,3 +397,38 @@ def test_metrics_mamutometro_tres_leituras(db: Session) -> None:
     assert linha["people"] == 2
     assert linha["total"] == 5
     assert linha["average"] == 2.5
+
+
+def _foto(db: Session, email: str, candidacy_id: int, turno: int) -> None:
+    db.execute(
+        text(
+            "insert into projetos_candidacy_turno (projeto_id, candidacy_id, ciclo, turno) "
+            "select id, :c, 'ele2026', :t from projetos where email = :e"
+        ),
+        {"c": candidacy_id, "t": turno, "e": email},
+    )
+    db.commit()
+
+
+def test_cs129_turnos_da_selecao_sobrevivem_a_desmarcar(db: Session) -> None:
+    client = _client(db)
+    _acompanhar(client, 1)  # cria o projeto do assinante
+    _foto(db, "assinante@example.com", 1, 1)
+    _foto(db, "assinante@example.com", 1, 2)
+    _foto(db, "assinante@example.com", 2, 1)
+    assert client.delete("/api/projects/me/candidacy-favorites/1").status_code == 204
+
+    turnos = client.get("/api/projects/me/candidacy-turnos").json()
+    assert turnos == [
+        {"candidacy_id": 1, "turnos": [1, 2]},
+        {"candidacy_id": 2, "turnos": [1]},
+    ]
+
+
+def test_cs129_turnos_escopados_por_assinante(db: Session) -> None:
+    dono = _client(db)
+    outro = _client(db, token_email="outro@example.com")
+    _acompanhar(dono, 1)
+    _acompanhar(outro, 2)
+    _foto(db, "assinante@example.com", 1, 1)
+    assert outro.get("/api/projects/me/candidacy-turnos").json() == []

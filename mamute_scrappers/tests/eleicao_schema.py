@@ -22,6 +22,11 @@ DDL = [
         id INTEGER PRIMARY KEY, projeto_id INTEGER NOT NULL,
         candidacy_id INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (projeto_id, candidacy_id))""",
+    """CREATE TABLE projetos_candidacy_turno (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, projeto_id INTEGER NOT NULL,
+        candidacy_id INTEGER NOT NULL, ciclo TEXT NOT NULL, turno SMALLINT NOT NULL,
+        selecionado_em TIMESTAMP, registrado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (projeto_id, candidacy_id, ciclo, turno))""",
     """CREATE TABLE feature_flag (key TEXT PRIMARY KEY, state TEXT NOT NULL)""",
     """CREATE TABLE feature_flag_tier (
         flag_key TEXT NOT NULL, tier_id INTEGER NOT NULL, mode TEXT NOT NULL,
