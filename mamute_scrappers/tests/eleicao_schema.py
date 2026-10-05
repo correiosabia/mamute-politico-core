@@ -27,6 +27,10 @@ DDL = [
         candidacy_id INTEGER NOT NULL, ciclo TEXT NOT NULL, turno SMALLINT NOT NULL,
         selecionado_em TIMESTAMP, registrado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (projeto_id, candidacy_id, ciclo, turno))""",
+    """CREATE TABLE selecao_liberacao (
+        ciclo TEXT NOT NULL, turno SMALLINT NOT NULL,
+        executado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        removidas INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (ciclo, turno))""",
     """CREATE TABLE feature_flag (key TEXT PRIMARY KEY, state TEXT NOT NULL)""",
     """CREATE TABLE feature_flag_tier (
         flag_key TEXT NOT NULL, tier_id INTEGER NOT NULL, mode TEXT NOT NULL,

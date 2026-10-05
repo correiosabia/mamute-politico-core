@@ -373,3 +373,35 @@ def test_email_mostra_asterisco_e_nota_so_para_quem_tem_item_matematico() -> Non
     corpo = render_html(fechado)
     assert "matematicamente" not in corpo
     assert "exceto onde marcado" not in corpo
+
+
+def test_cs130_email_completo_avisa_a_liberacao_so_para_quem_tem_nao_eleito() -> None:
+    from mamute_scrappers.scripts.notificacao.resultado_eleicao import AvisoPronto, render_html
+
+    base = {"numero": 22, "partido": "PX", "votos": 1000, "percentual": 1.0, "cargo": "Deputado Federal", "uf": "SP"}
+    com_nao_eleito = AvisoPronto(projeto_id=1, email="a@x.com", nome="Ana", turno=1, disparo=DISPARO_COMPLETO, itens=[
+        {**base, "candidacy_id": 1, "nome": "A", "situacao": "Eleito por QP"},
+        {**base, "candidacy_id": 2, "nome": "B", "situacao": "Suplente"},
+    ])
+    assert "Sua seleção foi liberada para o 2º turno" in render_html(com_nao_eleito)
+
+    so_eleitos = AvisoPronto(projeto_id=2, email="b@x.com", nome="Bia", turno=1, disparo=DISPARO_COMPLETO, itens=[
+        {**base, "candidacy_id": 1, "nome": "A", "situacao": "Eleito por QP"},
+        {**base, "candidacy_id": 3, "nome": "C", "situacao": "2º turno"},
+    ])
+    assert "liberada" not in render_html(so_eleitos)
+
+    majoritarios = AvisoPronto(projeto_id=3, email="c@x.com", nome="Caio", turno=1, disparo=DISPARO_MAJORITARIOS, itens=[
+        {**base, "candidacy_id": 2, "nome": "B", "situacao": "Não eleito"},
+    ])
+    assert "liberada" not in render_html(majoritarios)
+
+
+def test_cs128_nota_so_diz_demais_oficiais_quando_ha_outros() -> None:
+    from mamute_scrappers.scripts.notificacao.resultado_eleicao import AvisoPronto, render_html
+
+    base = {"numero": 22, "partido": "PX", "votos": 1000, "percentual": 1.0, "cargo": "Senador", "uf": "MG"}
+    so_mat = AvisoPronto(projeto_id=1, email="a@x.com", nome="Ana", turno=1, disparo=DISPARO_MAJORITARIOS, itens=[
+        {**base, "candidacy_id": 1, "nome": "A", "situacao": "Eleito", "matematicamente": True},
+    ])
+    assert "Os demais resultados" not in render_html(so_mat)

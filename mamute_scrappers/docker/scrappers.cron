@@ -117,7 +117,9 @@ PYTHONPATH=/app
 # depois o completo; ver o docstring do script). Só envia com a flag
 # `resultado_eleicao` em admins/all (tela de Feature Flags) e nunca repete
 # (election_result_notice). Pode sair do cron depois do 2º turno (25/10/2026).
-*/15 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh resultado-eleicao -- /bin/sh -c "/usr/local/bin/python -m mamute_scrappers.tse_crawler.resultados && /usr/local/bin/python -m mamute_scrappers.scripts.notificacao.resultado_eleicao" >> /proc/1/fd/1 2>> /proc/1/fd/2
+# No fim, libera a seleção para o 2º turno quando o 1º fecha em todo o país
+# (CS-130: saem os não eleitos, uma vez só; ver scripts/selecao_por_turno.py).
+*/15 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh resultado-eleicao -- /bin/sh -c "/usr/local/bin/python -m mamute_scrappers.tse_crawler.resultados && /usr/local/bin/python -m mamute_scrappers.scripts.notificacao.resultado_eleicao && /usr/local/bin/python -m mamute_scrappers.scripts.selecao_por_turno --liberar" >> /proc/1/fd/1 2>> /proc/1/fd/2
 
 # Foto de quem cada pessoa selecionou no 2º turno (CS-129): 17:05 de Brasília
 # do domingo da votação. Roda uma vez; o 1º turno foi registrado em 05/10.

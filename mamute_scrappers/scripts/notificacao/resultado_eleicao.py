@@ -472,7 +472,40 @@ def _nota_matematica(itens: Sequence[dict]) -> str:
         "<strong>* Definido matematicamente.</strong> "
         f"Para {html.escape(lista)}, o TSE ainda não encerrou a totalização, mas os votos "
         "que faltam apurar não mudam mais o resultado. A confirmação oficial ainda pode "
-        "levar algumas horas. Os demais resultados já são oficiais."
+        "levar algumas horas."
+        + (
+            " Os demais resultados já são oficiais."
+            if any(not item.get("matematicamente") for item in itens)
+            else ""
+        )
+        + "</td></tr></table>"
+    )
+
+
+def sai_na_liberacao(situacao: Optional[str]) -> bool:
+    """Nao eleito no 1o turno: sai da selecao na liberacao para o 2o (CS-130).
+
+    Mesma regra de scripts/selecao_por_turno.py: continua quem foi eleito
+    ("Eleito", "Eleito por QP"...) ou foi ao 2o turno.
+    """
+    texto = (situacao or "").strip()
+    return not (texto.lower().startswith("eleito") or texto == SITUACAO_SEGUNDO_TURNO)
+
+
+def _nota_liberacao(aviso: AvisoPronto) -> str:
+    """Linha do e-mail completo do 1o turno para quem tem nao eleito na lista."""
+    if aviso.turno != 1 or aviso.disparo != DISPARO_COMPLETO:
+        return ""
+    if not any(sai_na_liberacao(item["situacao"]) for item in aviso.itens):
+        return ""
+    return (
+        '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:18px;">'
+        f'<tr><td style="background:#f2f7ff;border-left:3px solid {_AZUL};padding:12px 14px;'
+        'font-size:14px;line-height:1.5;color:#383838;">'
+        "<strong>Sua seleção foi liberada para o 2º turno.</strong> "
+        "Quem não se elegeu saiu da sua lista de acompanhamento e continua marcado com o "
+        "selo <strong>1º</strong> na busca de candidaturas, para você lembrar quem escolheu. "
+        "Eleitos e quem foi ao 2º turno continuam selecionados."
         "</td></tr></table>"
     )
 
@@ -501,6 +534,7 @@ def render_html(aviso: AvisoPronto, *, branding: EmailBranding | None = None) ->
         + "".join(linhas)
         + "</table>"
         + _nota_matematica(aviso.itens)
+        + _nota_liberacao(aviso)
     )
     intro = introducao(aviso.turno, aviso.disparo)
     # O app mora em /app (manage_url); app_url e a home do site.
