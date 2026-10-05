@@ -277,3 +277,99 @@ def test_segundo_turno_nao_sai_antes_do_primeiro_ter_resultado() -> None:
     s = make_session()
     prontos, pendentes = montar_avisos(s, ciclo=CICLO, turno=2)
     assert prontos == [] and pendentes == 0
+
+
+# CS-128: majoritarios saem com o que esta definido matematicamente.
+
+
+def _definir_matematicamente(session, cargo: int, uf: str, situacoes: dict[int, str]) -> None:
+    """Arquivo ainda aberto, mas decidido; situacao nossa nas candidaturas."""
+    session.execute(
+        text(
+            "UPDATE tse_result_file SET totalizacao_final = 0, definido_matematicamente = 1 "
+            "WHERE cargo_codigo = :cargo AND uf = :uf"
+        ),
+        {"cargo": cargo, "uf": uf},
+    )
+    for candidacy_id, situacao in situacoes.items():
+        session.execute(
+            text(
+                "UPDATE candidacy_result SET totalizacao_final = 0, situacao = NULL, "
+                "eleito = 0, situacao_matematica = :s WHERE candidacy_id = :id"
+            ),
+            {"id": candidacy_id, "s": situacao},
+        )
+    session.commit()
+
+
+def test_majoritarios_saem_com_arquivo_definido_matematicamente() -> None:
+    s = _cenario()
+    set_flag(s, "all")
+    _fechar(s, CARGOS_MAJORITARIOS)
+    _definir_matematicamente(s, 1, "br", {5: "2º turno"})  # presidente ainda aberto
+    mailer = FakeMailer()
+    enviar(s, ciclo=CICLO, send=mailer, admins=frozenset())
+    assert sorted(mailer.enviados) == [("ana@x.com", ASSUNTO_MAJ), ("caio@x.com", ASSUNTO_MAJ)]
+
+    payloads = _payloads(s)
+    caio = payloads[(30, 1, DISPARO_MAJORITARIOS)]["itens"]
+    assert [(i["situacao"], i["matematicamente"]) for i in caio] == [("2º turno", True)]
+    ana = payloads[(10, 1, DISPARO_MAJORITARIOS)]["itens"]
+    assert [(i["situacao"], i["matematicamente"]) for i in ana] == [("2º turno", False)]
+
+
+def test_arquivo_aberto_e_sem_definicao_continua_segurando() -> None:
+    s = _cenario()
+    _fechar(s, CARGOS_MAJORITARIOS, exceto={(5, "ac")})
+    _definir_matematicamente(s, 1, "br", {5: "2º turno"})
+    prontos, pendentes = montar_avisos(s, ciclo=CICLO, turno=1, disparo=DISPARO_MAJORITARIOS)
+    assert prontos == [] and pendentes == 1
+
+
+def test_completo_nao_aceita_definicao_matematica() -> None:
+    s = _cenario()
+    _fechar(s, CARGOS_TODOS)
+    _definir_matematicamente(s, 1, "br", {5: "2º turno"})
+    prontos, pendentes = montar_avisos(s, ciclo=CICLO, turno=1, disparo=DISPARO_COMPLETO)
+    assert prontos == [] and pendentes == 1
+
+
+def test_majoritarios_resumem_o_texto_do_tse_em_tres_situacoes() -> None:
+    s = make_session()
+    add_projeto(s, 10, "ana@x.com")
+    add_candidacy(s, 1, 111, office_code=5, state="SP", name="SEN SP")
+    add_candidacy(s, 2, 222, office_code=3, state="SP", name="GOV RENUNCIOU")
+    follow(s, 10, 1)
+    follow(s, 10, 2)
+    _resultado(s, 1, "Eleito")
+    _fechar(s, CARGOS_MAJORITARIOS)
+    prontos, _ = montar_avisos(s, ciclo=CICLO, turno=1, disparo=DISPARO_MAJORITARIOS)
+    situacoes = {i["nome"]: i["situacao"] for i in prontos[0].itens}
+    # Fora do arquivo (renuncia, indeferido) vira "Não eleito", nao "Não consta".
+    assert situacoes == {"SEN SP": "Eleito", "GOV RENUNCIOU": "Não eleito"}
+
+
+def test_email_mostra_asterisco_e_nota_so_para_quem_tem_item_matematico() -> None:
+    from mamute_scrappers.scripts.notificacao.resultado_eleicao import AvisoPronto, render_html
+
+    base = {"numero": 22, "partido": "PX", "votos": 1000, "percentual": 47.03}
+    aberto = AvisoPronto(projeto_id=1, email="a@x.com", nome="Ana", turno=1, disparo=DISPARO_MAJORITARIOS, itens=[
+        {**base, "candidacy_id": 1, "nome": "PRES", "cargo": "Presidente", "uf": "BR",
+         "situacao": "2º turno", "matematicamente": True},
+        {**base, "candidacy_id": 2, "nome": "GOV", "cargo": "Governador", "uf": "AM",
+         "situacao": "2º turno", "matematicamente": True},
+        {**base, "candidacy_id": 3, "nome": "SEN", "cargo": "Senador", "uf": "SP",
+         "situacao": "Eleito", "matematicamente": False},
+    ])
+    corpo = render_html(aberto)
+    assert "matematicamente*" in corpo
+    assert "Para Presidente e Governador (AM), o TSE ainda não encerrou" in corpo
+    assert "exceto onde marcado com *" in corpo
+
+    fechado = AvisoPronto(projeto_id=2, email="b@x.com", nome="Bia", turno=1, disparo=DISPARO_MAJORITARIOS, itens=[
+        {**base, "candidacy_id": 3, "nome": "SEN", "cargo": "Senador", "uf": "SP",
+         "situacao": "Eleito", "matematicamente": False},
+    ])
+    corpo = render_html(fechado)
+    assert "matematicamente" not in corpo
+    assert "exceto onde marcado" not in corpo

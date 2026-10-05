@@ -34,7 +34,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Optional, Set, Tuple
+from typing import Callable, Dict, Iterable, Optional, Sequence, Set, Tuple
 
 import requests
 from sqlalchemy import inspect, text
@@ -48,6 +48,7 @@ from mamute_scrappers.tse_crawler.resultados_parsing import (  # noqa: E402
     TZ_BRASILIA,
     arquivos_da_eleicao,
     config_url,
+    definicao_matematica,
     foi_eleito,
     parse_config,
     parse_result_file,
@@ -112,6 +113,7 @@ class ColetaStats:
     arquivos_ausentes: int = 0
     arquivos_ja_finais: int = 0
     arquivos_finais_agora: int = 0
+    definidos_matematicamente: int = 0
     candidatos_no_tse: int = 0
     candidatos_casados: int = 0
     sqcands_vistos: Set[int] = field(default_factory=set)
@@ -121,6 +123,7 @@ class ColetaStats:
             f"eleicoes={self.eleicoes} (futuras={self.eleicoes_futuras}) "
             f"baixados={self.arquivos_baixados} ausentes={self.arquivos_ausentes} "
             f"ja_finais={self.arquivos_ja_finais} finais_agora={self.arquivos_finais_agora} "
+            f"definidos_matematicamente={self.definidos_matematicamente} "
             f"candidatos_tse={self.candidatos_no_tse} casados={self.candidatos_casados}"
         )
 
@@ -161,14 +164,20 @@ def _arquivos_finais(
     return {(int(r.codigo_eleicao), r.uf, int(r.cargo_codigo)) for r in rows}
 
 
-def _upsert_arquivo(*, com_eleitos: bool, com_apurado: bool = False):
-    coluna = ", eleitos_no_arquivo" if com_eleitos else ""
-    valor = ", :eleitos" if com_eleitos else ""
-    atualiza = "eleitos_no_arquivo = excluded.eleitos_no_arquivo," if com_eleitos else ""
-    if com_apurado:
-        coluna += ", percentual_apurado"
-        valor += ", :percentual_apurado"
-        atualiza += "percentual_apurado = excluded.percentual_apurado,"
+def _colunas_opcionais(extras: Sequence[str]) -> tuple[str, str, str]:
+    """Pedacos de INSERT/ON CONFLICT para colunas que dependem da migration.
+
+    O deploy sobe o codigo antes do alembic: coluna nova so entra no SQL
+    quando ja existe no banco (o parametro tem o mesmo nome da coluna).
+    """
+    coluna = "".join(f", {c}" for c in extras)
+    valor = "".join(f", :{c}" for c in extras)
+    atualiza = "".join(f"{c} = excluded.{c}, " for c in extras)
+    return coluna, valor, atualiza
+
+
+def _upsert_arquivo(extras: Sequence[str] = ()):
+    coluna, valor, atualiza = _colunas_opcionais(extras)
     return text(
         f"""
         INSERT INTO tse_result_file
@@ -189,12 +198,9 @@ def _upsert_arquivo(*, com_eleitos: bool, com_apurado: bool = False):
         """
     )
 
-def _upsert_resultado(*, com_apurado: bool):
-    """Upsert de `candidacy_result`. `percentual_apurado` so existe depois da
-    migration cs127 (o deploy sobe o codigo antes do alembic)."""
-    coluna = ", percentual_apurado" if com_apurado else ""
-    valor = ", :percentual_apurado" if com_apurado else ""
-    atualiza = "percentual_apurado = excluded.percentual_apurado," if com_apurado else ""
+
+def _upsert_resultado(extras: Sequence[str] = ()):
+    coluna, valor, atualiza = _colunas_opcionais(extras)
     return text(
         f"""
         INSERT INTO candidacy_result
@@ -248,9 +254,23 @@ def coletar(
     candidaturas = _mapa_candidaturas(session, ano_do_ciclo(ciclo))
     com_eleitos = _tem_coluna_eleitos(session)
     ja_finais = _arquivos_finais(session, ciclo, com_eleitos=com_eleitos)
-    com_apurado = _tem_coluna(session, "candidacy_result", "percentual_apurado")
-    upsert_arquivo = _upsert_arquivo(com_eleitos=com_eleitos, com_apurado=com_apurado)
-    upsert_resultado = _upsert_resultado(com_apurado=com_apurado)
+    # Colunas de migrations posteriores a cs106 (cs107, cs127, cs128).
+    extras_arquivo = [
+        coluna
+        for tabela, coluna, existe in (
+            ("tse_result_file", "eleitos_no_arquivo", com_eleitos),
+            ("tse_result_file", "percentual_apurado", None),
+            ("tse_result_file", "definido_matematicamente", None),
+        )
+        if (existe if existe is not None else _tem_coluna(session, tabela, coluna))
+    ]
+    extras_resultado = [
+        coluna
+        for coluna in ("percentual_apurado", "situacao_matematica")
+        if _tem_coluna(session, "candidacy_result", coluna)
+    ]
+    upsert_arquivo = _upsert_arquivo(extras_arquivo)
+    upsert_resultado = _upsert_resultado(extras_resultado)
 
     for eleicao in eleicoes:
         if eleicao.data > hoje and not ignorar_data:
@@ -300,6 +320,10 @@ def coletar(
                 if arquivo.percentual_apurado is not None
                 else None
             )
+            # CS-128: majoritario ja decidido antes do TSE encerrar.
+            definicao = definicao_matematica(arquivo, cargo)
+            if definicao is not None:
+                stats.definidos_matematicamente += 1
             session.execute(
                 upsert_arquivo,
                 {
@@ -312,8 +336,9 @@ def coletar(
                     "atualizado_em": arquivo.atualizado_em,
                     "no_arquivo": len(arquivo.candidatos),
                     "casados": len(casados),
-                    "eleitos": sum(1 for c in arquivo.candidatos if foi_eleito(c)),
+                    "eleitos_no_arquivo": sum(1 for c in arquivo.candidatos if foi_eleito(c)),
                     "percentual_apurado": apurado,
+                    "definido_matematicamente": definicao is not None,
                     "agora": agora,
                 },
             )
@@ -333,6 +358,9 @@ def coletar(
                             "final": arquivo.final,
                             "atualizado_em": arquivo.atualizado_em,
                             "percentual_apurado": apurado,
+                            "situacao_matematica": (
+                                definicao.get(c.sqcand) if definicao is not None else None
+                            ),
                             "agora": agora,
                         }
                         for candidacy_id, c in casados

@@ -15,7 +15,12 @@ a totalizacao do TSE fecha em TODAS as UFs, para todo mundo junto.
   cargos x UFs que tiveram 2o turno; so para quem acompanha candidato que foi
   ao 2o turno (`situacao` "2º turno" no turno 1), listando so esses.
 "Fechou" = o arquivo do TSE daquele cargo x UF esta com
-`tse_result_file.totalizacao_final`. Candidato que nao aparece num arquivo
+`tse_result_file.totalizacao_final`. Excecao (CS-128): no disparo de
+majoritarios do 1o turno tambem vale o arquivo `definido_matematicamente`
+(os votos que faltam nao mudam o resultado; regra no coletor). Esse disparo
+mostra so "Eleito", "2º turno" ou "Não eleito": oficial do TSE onde a
+totalizacao encerrou, e com "matematicamente*" e uma nota onde ainda nao
+encerrou (so no e-mail de quem acompanha um desses). Candidato que nao aparece num arquivo
 encerrado (indeferido, renuncia) entra como "Nao consta na totalizacao do TSE".
 A situacao vai com o texto do TSE ("Eleito por QP", "Suplente"...).
 
@@ -51,7 +56,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -82,6 +88,8 @@ logger = logging.getLogger(__name__)
 FLAG_KEY = "resultado_eleicao"
 DEFAULT_CICLO = "ele2026"
 SITUACAO_SEGUNDO_TURNO = "2º turno"
+SITUACAO_ELEITO = "Eleito"
+SITUACAO_NAO_ELEITO = "Não eleito"
 NAO_CONSTA = "Não consta na totalização do TSE"
 SEM_SITUACAO = "Sem situação informada pelo TSE"
 MAX_TENTATIVAS = 3
@@ -157,10 +165,12 @@ def introducao(turno: int, disparo: str = DISPARO_COMPLETO) -> str:
     if turno == 2:
         return "O TSE encerrou a totalização do 2º turno em todo o país. Veja como ficaram os candidatos que você acompanha:"
     if disparo == DISPARO_MAJORITARIOS:
+        # CS-128: pode sair antes do TSE encerrar todas as UFs; quem tem item
+        # definido matematicamente recebe a nota no fim da lista.
         return (
-            "O TSE encerrou a totalização de presidente, governador e senador em todo o país. "
+            "Saiu o resultado de presidente, governador e senador. "
             "Veja como ficaram os candidatos que você acompanha para esses cargos. "
-            "O resultado dos deputados chega em outro e-mail, assim que o TSE encerrar a totalização deles."
+            "O resultado dos deputados chega em outro e-mail, com a totalização oficial do TSE."
         )
     return (
         "O TSE encerrou a totalização de todos os cargos em todo o país. "
@@ -199,11 +209,25 @@ def emails_admin() -> frozenset[str]:
     return frozenset(e.strip().lower() for e in raw.split(",") if e.strip())
 
 
-def _arquivos_finais(session: Session, ciclo: str, turno: int) -> set[tuple[int, str]]:
+def _tem_coluna(session: Session, tabela: str, coluna: str) -> bool:
+    """Colunas de migrations novas (o deploy sobe o codigo antes do alembic)."""
+    try:
+        colunas = inspect(session.get_bind()).get_columns(tabela)
+    except SQLAlchemyError:
+        return False
+    return any(c.get("name") == coluna for c in colunas)
+
+
+def _arquivos_finais(
+    session: Session, ciclo: str, turno: int, *, aceitar_matematico: bool = False
+) -> set[tuple[int, str]]:
+    condicao = "totalizacao_final"
+    if aceitar_matematico and _tem_coluna(session, "tse_result_file", "definido_matematicamente"):
+        condicao = "(totalizacao_final OR definido_matematicamente)"
     rows = session.execute(
         text(
             "SELECT cargo_codigo, uf FROM tse_result_file "
-            "WHERE ciclo = :ciclo AND turno = :turno AND totalizacao_final"
+            f"WHERE ciclo = :ciclo AND turno = :turno AND {condicao}"
         ),
         {"ciclo": ciclo, "turno": turno},
     ).all()
@@ -244,13 +268,35 @@ def arquivos_esperados(
 
 
 def arquivos_pendentes(
-    session: Session, *, ciclo: str, turno: int, cargos: frozenset[int]
+    session: Session,
+    *,
+    ciclo: str,
+    turno: int,
+    cargos: frozenset[int],
+    aceitar_matematico: bool = False,
 ) -> Optional[set[tuple[int, str]]]:
     """Arquivos que ainda faltam fechar; None quando nao ha nada esperado."""
     esperados = arquivos_esperados(session, ciclo=ciclo, turno=turno, cargos=cargos)
     if not esperados:
         return None
-    return esperados - _arquivos_finais(session, ciclo, turno)
+    return esperados - _arquivos_finais(
+        session, ciclo, turno, aceitar_matematico=aceitar_matematico
+    )
+
+
+def aceita_matematico(turno: int, disparo: str) -> bool:
+    """So o disparo de majoritarios do 1o turno sai antes do TSE encerrar."""
+    return turno == 1 and disparo == DISPARO_MAJORITARIOS
+
+
+def situacao_resumida(situacao: Optional[str]) -> str:
+    """Texto do TSE reduzido a Eleito / 2º turno / Não eleito (majoritarios)."""
+    texto = (situacao or "").strip().lower()
+    if texto.startswith("eleito"):
+        return SITUACAO_ELEITO
+    if texto.startswith("2"):
+        return SITUACAO_SEGUNDO_TURNO
+    return SITUACAO_NAO_ELEITO
 
 
 def montar_avisos(
@@ -269,7 +315,10 @@ def montar_avisos(
     """
     if cargos is None:
         cargos = dict(disparos_do_turno(turno))[disparo]
-    pendentes = arquivos_pendentes(session, ciclo=ciclo, turno=turno, cargos=cargos)
+    matematico = aceita_matematico(turno, disparo)
+    pendentes = arquivos_pendentes(
+        session, ciclo=ciclo, turno=turno, cargos=cargos, aceitar_matematico=matematico
+    )
     if pendentes is None:
         return [], 0
     if pendentes:
@@ -282,13 +331,19 @@ def montar_avisos(
             "WHERE r1.candidacy_id = c.id AND r1.turno = 1 AND r1.situacao = :seg)"
         )
     filtro_projeto = "AND p.id = :projeto_id" if projeto_id is not None else ""
+    situacao_matematica = (
+        "r.situacao_matematica"
+        if matematico and _tem_coluna(session, "candidacy_result", "situacao_matematica")
+        else "NULL"
+    )
     rows = session.execute(
         text(
             f"""
             SELECT p.id AS projeto_id, p.email, p.nome, p.tier_id,
                    c.id AS candidacy_id, c.ballot_name, c.full_name, c.office,
                    c.office_code, c.state, c.party, c.ballot_number,
-                   r.situacao, r.votos, r.percentual
+                   r.situacao, r.votos, r.percentual,
+                   r.totalizacao_final, {situacao_matematica} AS situacao_matematica
               FROM projetos_candidacy pc
               JOIN projetos p ON p.id = pc.projeto_id AND p.deleted_at IS NULL
               JOIN candidacy c ON c.id = pc.candidacy_id
@@ -323,7 +378,18 @@ def montar_avisos(
                 tier_id=row.tier_id,
             ),
         )
-        if row.situacao:
+        definido_matematicamente = False
+        if matematico:
+            # Oficial onde o TSE encerrou; conta nossa (com asterisco) onde nao.
+            # Sem linha no arquivo (indeferido, renuncia) = Não eleito.
+            if row.totalizacao_final:
+                situacao = situacao_resumida(row.situacao)
+            elif row.situacao_matematica:
+                situacao = situacao_resumida(row.situacao_matematica)
+                definido_matematicamente = True
+            else:
+                situacao = SITUACAO_NAO_ELEITO
+        elif row.situacao:
             situacao = row.situacao
         elif row.votos is not None:
             situacao = SEM_SITUACAO
@@ -340,6 +406,7 @@ def montar_avisos(
                 "situacao": situacao,
                 "votos": int(row.votos) if row.votos is not None else None,
                 "percentual": float(row.percentual) if row.percentual is not None else None,
+                "matematicamente": definido_matematicamente,
             }
         )
 
@@ -360,6 +427,56 @@ def _greeting_name(nome: str) -> str:
     return (first or nome or "").upper()
 
 
+# Mesmas cores do selo de situacao no card da busca (ResultadoCandidatura.tsx).
+_SELO = {
+    SITUACAO_ELEITO: ("#090909", "#ffffff"),
+    SITUACAO_SEGUNDO_TURNO: ("#1b76ff", "#ffffff"),
+}
+_SELO_PADRAO = ("#efeeee", "#7f7b7b")
+_AZUL = "#1b76ff"
+
+FONTE_OFICIAL = "Situação conforme a divulgação oficial do Tribunal Superior Eleitoral."
+
+
+def _selo(situacao: str, matematicamente: bool) -> str:
+    fundo, cor = _SELO.get(situacao, _SELO_PADRAO)
+    selo = (
+        f'<span style="display:inline-block;background:{fundo};color:{cor};'
+        "border-radius:76px;padding:3px 10px;font-size:11px;font-weight:bold;"
+        f'letter-spacing:0.04em;text-transform:uppercase;">{html.escape(situacao)}</span>'
+    )
+    if matematicamente:
+        selo += (
+            '<br><span style="display:inline-block;margin-top:4px;font-size:12px;'
+            f'color:{_AZUL};">matematicamente*</span>'
+        )
+    return selo
+
+
+def _nota_matematica(itens: Sequence[dict]) -> str:
+    """Nota so para quem acompanha candidato de arquivo ainda nao encerrado."""
+    onde = list(
+        dict.fromkeys(
+            item["cargo"] if not item["uf"] or item["uf"].upper() == "BR" else f'{item["cargo"]} ({item["uf"]})'
+            for item in itens
+            if item.get("matematicamente")
+        )
+    )
+    if not onde:
+        return ""
+    lista = ", ".join(onde[:-1]) + (" e " if len(onde) > 1 else "") + onde[-1]
+    return (
+        '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:18px;">'
+        f'<tr><td style="background:#f2f7ff;border-left:3px solid {_AZUL};padding:12px 14px;'
+        'font-size:14px;line-height:1.5;color:#383838;">'
+        "<strong>* Definido matematicamente.</strong> "
+        f"Para {html.escape(lista)}, o TSE ainda não encerrou a totalização, mas os votos "
+        "que faltam apurar não mudam mais o resultado. A confirmação oficial ainda pode "
+        "levar algumas horas. Os demais resultados já são oficiais."
+        "</td></tr></table>"
+    )
+
+
 def render_html(aviso: AvisoPronto, *, branding: EmailBranding | None = None) -> str:
     brand = branding or get_branding()
     linhas = []
@@ -367,17 +484,23 @@ def render_html(aviso: AvisoPronto, *, branding: EmailBranding | None = None) ->
         detalhe = " · ".join(
             p for p in (f"{item['cargo']} ({item['uf']})", item["partido"], _formata_votos(item["votos"], item["percentual"])) if p
         )
+        numero = (
+            f' <span style="color:#7f7b7b;font-size:12px;font-weight:bold;">{html.escape(str(item["numero"]))}</span>'
+            if item.get("numero") is not None
+            else ""
+        )
         linhas.append(
-            '<tr><td style="padding:10px 0;border-bottom:1px solid #eee;">'
-            f'<strong style="color:#111;">{html.escape(item["nome"])}</strong><br>'
+            '<tr><td style="padding:12px 0;border-bottom:1px solid #efeeee;vertical-align:top;">'
+            f'<strong style="color:#090909;font-size:16px;">{html.escape(item["nome"])}</strong>{numero}<br>'
             f'<span class="muted">{html.escape(detalhe)}</span></td>'
-            '<td style="padding:10px 0 10px 12px;border-bottom:1px solid #eee;text-align:right;'
-            f'white-space:nowrap;"><strong>{html.escape(item["situacao"])}</strong></td></tr>'
+            '<td style="padding:12px 0 12px 12px;border-bottom:1px solid #efeeee;text-align:right;'
+            f'vertical-align:top;white-space:nowrap;">{_selo(item["situacao"], bool(item.get("matematicamente")))}</td></tr>'
         )
     tabela = (
         '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">'
         + "".join(linhas)
         + "</table>"
+        + _nota_matematica(aviso.itens)
     )
     intro = introducao(aviso.turno, aviso.disparo)
     # O app mora em /app (manage_url); app_url e a home do site.
@@ -390,7 +513,11 @@ def render_html(aviso: AvisoPronto, *, branding: EmailBranding | None = None) ->
         "{{GREETING_NAME}}": html.escape(_greeting_name(aviso.nome)),
         "{{INTRO}}": html.escape(intro),
         "{{RESULTADOS}}": tabela,
-        "{{FONTE}}": "Situação conforme a divulgação oficial do Tribunal Superior Eleitoral.",
+        "{{FONTE}}": (
+            FONTE_OFICIAL[:-1] + ", exceto onde marcado com *."
+            if any(item.get("matematicamente") for item in aviso.itens)
+            else FONTE_OFICIAL
+        ),
         "{{FOOTER}}": (
             "Veja seus candidatos em "
             f'<a href="{html.escape(link)}">{html.escape(link)}</a>.'

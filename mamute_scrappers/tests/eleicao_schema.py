@@ -1,5 +1,5 @@
 """Schema SQLite minimo das tabelas do CS-106, compartilhado pelos testes de
-coleta e de envio. Espelha as migrations cs106a1b2c3d4, cs107a1b2c3d4 e cs127a1b2c3d4 so no
+coleta e de envio. Espelha as migrations cs106a1b2c3d4, cs107a1b2c3d4, cs127a1b2c3d4 e cs128a1b2c3d4 so no
 que os testes usam."""
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ DDL = [
         tse_atualizado_em TIMESTAMP, candidatos_no_arquivo INTEGER NOT NULL DEFAULT 0,
         candidatos_casados INTEGER NOT NULL DEFAULT 0, eleitos_no_arquivo INTEGER,
         percentual_apurado NUMERIC,
+        definido_matematicamente BOOLEAN NOT NULL DEFAULT 0,
         coletado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (codigo_eleicao, uf, cargo_codigo))""",
     """CREATE TABLE candidacy_result (
@@ -40,7 +41,7 @@ DDL = [
         turno SMALLINT NOT NULL, codigo_eleicao INTEGER NOT NULL, situacao TEXT,
         eleito BOOLEAN, votos BIGINT, percentual NUMERIC, destinacao_voto TEXT,
         totalizacao_final BOOLEAN NOT NULL DEFAULT 0, tse_atualizado_em TIMESTAMP,
-        percentual_apurado NUMERIC,
+        percentual_apurado NUMERIC, situacao_matematica TEXT,
         coletado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (candidacy_id, turno))""",
     """CREATE TABLE election_result_notice (
