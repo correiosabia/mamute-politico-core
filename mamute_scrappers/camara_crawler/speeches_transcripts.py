@@ -23,6 +23,7 @@ from typing import (
 
 import requests
 from sqlalchemy import func
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -399,6 +400,31 @@ def _upsert_speech(
     return record, created
 
 
+def _analyze_speech_text(session: Session, record: Any) -> None:
+    """Extrai palavras-chave e entidades do discurso (alimenta a nuvem de temas).
+
+    Reaproveita o pipeline de NLP do crawler do Senado. Falha na análise não
+    derruba a sincronização: o discurso fica salvo e pode ser reprocessado com
+    `scripts.rebuild_speech_text_analysis --only-missing`.
+    """
+    try:
+        from mamute_scrappers.senado_crawler import speechs_transcipts as senado_speeches
+
+        senado_speeches._ensure_db_dependencies()
+        senado_speeches.update_speech_text_analysis(session, record)
+    except Exception as exc:  # pragma: no cover - depende de spaCy/modelo no ambiente
+        logger.warning(
+            "Falha na análise textual do discurso %s: %s",
+            getattr(record, "id", None),
+            exc,
+        )
+
+
+def _speech_text_changed(record: Any) -> bool:
+    history = sa_inspect(record).attrs.speech_text.history
+    return history.has_changes()
+
+
 def speeches_transcripts(
     *,
     deputado_id: Optional[int] = None,
@@ -503,6 +529,8 @@ def speeches_transcripts(
                                 inserted += 1
                             else:
                                 updated += 1
+                            if created or _speech_text_changed(record):
+                                _analyze_speech_text(session, record)
 
                 if dep_processed > 0:
                     logger.info(
