@@ -8,6 +8,7 @@ from .authors_proposition import AuthorsProposition
 from .candidacy import Candidacy
 from .chatbot_usage import ChatbotUsage
 from .committee import Committee
+from .collection import Collection, CollectionBlock, CollectionMember
 from .committee_attendance import CommitteeAttendance
 from .election_result import CandidacyResult, ElectionResultNotice
 from .electoral_history import ElectoralHistory
@@ -47,6 +48,9 @@ __all__ = [
     "Candidacy",
     "CandidacyResult",
     "ChatbotUsage",
+    "Collection",
+    "CollectionBlock",
+    "CollectionMember",
     "Committee",
     "CommitteeAttendance",
     "EditorialAgenda",
