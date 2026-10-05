@@ -86,3 +86,87 @@ def test_cortes_oficiais_sao_17h_de_brasilia() -> None:
 
     assert CORTES[1].astimezone(timezone.utc) == datetime(2026, 10, 4, 20, 0, tzinfo=timezone.utc)
     assert CORTES[2].astimezone(timezone.utc) == datetime(2026, 10, 25, 20, 0, tzinfo=timezone.utc)
+
+
+# CS-130: liberacao da selecao para o 2o turno.
+
+from mamute_scrappers.scripts.selecao_por_turno import liberar_para_segundo_turno  # noqa: E402
+from mamute_scrappers.tse_crawler.resultados_parsing import abrangencias  # noqa: E402
+
+TODOS = (1, 3, 5, 6, 7, 8)
+
+
+def _fechar_tudo(s, *, exceto: tuple[int, str] | None = None) -> None:
+    for cargo in TODOS:
+        for uf in abrangencias(cargo):
+            s.execute(
+                text(
+                    "INSERT INTO tse_result_file (ciclo, codigo_eleicao, turno, uf, cargo_codigo, totalizacao_final) "
+                    "VALUES ('ele2026', 6259, 1, :uf, :cargo, :f)"
+                ),
+                {"uf": uf, "cargo": cargo, "f": (cargo, uf) != exceto},
+            )
+    s.commit()
+
+
+def _liberacao_cenario():
+    """Ana selecionou: presidente no 2o turno (1), deputado eleito (2),
+    presidente nao eleito (3), deputado suplente (4), indeferido sem resultado (5)."""
+    s = _cenario()
+    add_candidacy(s, 4, 444, office_code=6, state="SP", name="SUPLENTE")
+    add_candidacy(s, 5, 555, office_code=6, state="SP", name="INDEFERIDO")
+    s.execute(
+        text(
+            "INSERT INTO candidacy_result (candidacy_id, turno, codigo_eleicao, situacao, totalizacao_final) "
+            "VALUES (2, 1, 6259, 'Eleito por QP', 1), (4, 1, 6259, 'Suplente', 1)"
+        )
+    )
+    for cid in (1, 2, 3, 4, 5):
+        _selecionar(s, 10, cid, "2026-09-01 12:00:00")
+    registrar_turno(s, turno=1, corte=CORTE_T1)
+    return s
+
+
+def _selecionados(s) -> set[int]:
+    return {r[0] for r in s.execute(text("SELECT candidacy_id FROM projetos_candidacy")).all()}
+
+
+def test_liberacao_tira_so_nao_eleitos_e_mantem_o_selo() -> None:
+    s = _liberacao_cenario()
+    _fechar_tudo(s)
+    assert liberar_para_segundo_turno(s) == 3
+    assert _selecionados(s) == {1, 2}  # 2o turno e eleito ficam
+    assert {cid for _, cid, t in _foto(s) if t == 1} == {1, 2, 3, 4, 5}  # selo "1º" segue
+
+
+def test_liberacao_espera_o_tse_fechar_tudo() -> None:
+    s = _liberacao_cenario()
+    _fechar_tudo(s, exceto=(6, "am"))
+    assert liberar_para_segundo_turno(s) is None
+    assert _selecionados(s) == {1, 2, 3, 4, 5}
+
+
+def test_liberacao_acontece_uma_vez_so() -> None:
+    s = _liberacao_cenario()
+    _fechar_tudo(s)
+    liberar_para_segundo_turno(s)
+    _selecionar(s, 10, 3, "2026-10-06 12:00:00")  # a pessoa marca de novo
+    assert liberar_para_segundo_turno(s) is None
+    assert 3 in _selecionados(s)
+
+
+def test_liberacao_nao_tira_quem_nao_esta_na_foto() -> None:
+    s = _liberacao_cenario()
+    s.execute(text("DELETE FROM projetos_candidacy_turno WHERE candidacy_id = 3"))
+    s.commit()
+    _fechar_tudo(s)
+    liberar_para_segundo_turno(s)
+    assert 3 in _selecionados(s)  # sem selo "1º", nao sai
+
+
+def test_liberacao_dry_run_nao_apaga() -> None:
+    s = _liberacao_cenario()
+    _fechar_tudo(s)
+    assert liberar_para_segundo_turno(s, dry_run=True) == 3
+    assert _selecionados(s) == {1, 2, 3, 4, 5}
+    assert s.execute(text("SELECT count(*) FROM selecao_liberacao")).scalar() == 0
