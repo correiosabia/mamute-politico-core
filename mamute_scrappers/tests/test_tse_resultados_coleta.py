@@ -132,6 +132,60 @@ def test_grava_percentual_apurado_durante_a_apuracao() -> None:
     assert [float(v) for v in apurados] == [51.51]
 
 
+def _governador_aberto(*, md: str | None) -> dict:
+    """Governador de SP com 99,99% apurado: 2o turno ja decidido na conta."""
+    cands = [
+        (41627170, 4000000),  # 2o turno
+        (41627999, 3500000),  # 2o turno, fora da base
+        (41627384, 1000000),  # nao eleito
+    ]
+    payload = {
+        "t": "1",
+        "tf": "n",
+        "dt": "04/10/2026",
+        "ht": "23:50:00",
+        "carg": [{"nv": "1", "agr": [{"par": [{"cand": [
+            {"sqcand": str(sq), "e": "n", "st": "", "vap": str(v), "pvap": "0,00", "dvt": "Válido"}
+            for sq, v in cands
+        ]}]}]}],
+        "s": {"pst": "99,99"},
+        "e": {"esnt": "500"},
+        "v": {"vvc": "8500000"},
+    }
+    if md:
+        payload["md"] = md
+    return payload
+
+
+def test_majoritario_definido_matematicamente_antes_de_encerrar() -> None:
+    # CS-128: arquivo aberto, marca do TSE (`md`) e a conta concordam.
+    session = _sessao_com_candidatos()
+    aberto = _governador_aberto(md="s")
+    stats = coletar(session, base=BASE, http_get=FakeTse({GOV_SP: aberto}), hoje=DOMINGO)
+    assert stats.definidos_matematicamente == 1
+    assert session.execute(
+        text("SELECT definido_matematicamente, totalizacao_final FROM tse_result_file")
+    ).one() in ((1, 0), (True, False))
+    por_candidatura = dict(
+        session.execute(
+            text("SELECT candidacy_id, situacao_matematica FROM candidacy_result")
+        ).all()
+    )
+    assert por_candidatura == {1: "2º turno", 2: "Não eleito"}
+
+
+def test_sem_marca_do_tse_governador_nao_fica_definido() -> None:
+    session = _sessao_com_candidatos()
+    aberto = _governador_aberto(md=None)
+    coletar(session, base=BASE, http_get=FakeTse({GOV_SP: aberto}), hoje=DOMINGO)
+    assert session.execute(
+        text("SELECT definido_matematicamente FROM tse_result_file")
+    ).scalar() in (0, False)
+    assert session.execute(
+        text("SELECT count(*) FROM candidacy_result WHERE situacao_matematica IS NOT NULL")
+    ).scalar() == 0
+
+
 def test_dry_run_nao_grava() -> None:
     session = _sessao_com_candidatos()
     tse = FakeTse({GOV_SP: _load("sim-sp-governador.json")})

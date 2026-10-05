@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterable, Iterator, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 from zoneinfo import ZoneInfo
 
 TZ_BRASILIA = ZoneInfo("America/Sao_Paulo")
@@ -70,6 +70,11 @@ class CandidatoResultado:
     percentual: Optional[Decimal]
     destinacao_voto: Optional[str]
 
+    @property
+    def valido(self) -> bool:
+        """Voto contado para o candidato (sub judice e anulado ficam de fora)."""
+        return (self.destinacao_voto or "").lower().startswith("v")
+
 
 @dataclass(frozen=True)
 class ArquivoResultado:
@@ -79,6 +84,14 @@ class ArquivoResultado:
     candidatos: List[CandidatoResultado] = field(default_factory=list)
     # % de secoes totalizadas (`s.pst`), o "% de urnas apuradas" (CS-127).
     percentual_apurado: Optional[Decimal] = None
+    # CS-128: insumos da definicao matematica antes do TSE encerrar.
+    vagas: Optional[int] = None  # `carg[].nv`
+    # `v.vvc`: validos + anulados sub judice. E sobre ele que o TSE calcula a
+    # maioria absoluta (RJ 2026: 50,88% dos validos puros, 49,27% do vvc, 2o turno).
+    votos_validos: Optional[int] = None
+    eleitores_restantes: Optional[int] = None  # `e.esnt`: eleitores das secoes nao totalizadas
+    # `md` do TSE: "e" = eleito definido, "s" = 2o turno definido (so presidente/governador).
+    matematicamente_tse: Optional[str] = None
 
 
 def _parse_date_br(raw: Any) -> Optional[date]:
@@ -200,6 +213,12 @@ def parse_result_file(payload: dict) -> ArquivoResultado:
         atualizado_em=_parse_timestamp(payload.get("dt"), payload.get("ht")),
         candidatos=candidatos,
         percentual_apurado=_parse_percent((payload.get("s") or {}).get("pst")),
+        vagas=_parse_int(((payload.get("carg") or [{}])[0] or {}).get("nv")),
+        votos_validos=_parse_int(
+            (payload.get("v") or {}).get("vvc") or (payload.get("v") or {}).get("vv")
+        ),
+        eleitores_restantes=_parse_int((payload.get("e") or {}).get("esnt")),
+        matematicamente_tse=(payload.get("md") or "").strip().lower() or None,
     )
 
 
@@ -219,3 +238,70 @@ def arquivos_da_eleicao(eleicao: EleicaoConfig) -> Iterable[tuple[str, int]]:
     for cargo in eleicao.cargos:
         for uf in abrangencias(cargo):
             yield uf, cargo
+
+
+ELEITO = "Eleito"
+SEGUNDO_TURNO = "2º turno"
+NAO_ELEITO = "Não eleito"
+CARGOS_MAIORIA_ABSOLUTA = frozenset({CARGO_PRESIDENTE, CARGO_GOVERNADOR})
+CARGOS_MAJORITARIOS_DEFINIVEIS = CARGOS_MAIORIA_ABSOLUTA | {CARGO_SENADOR}
+
+
+def definicao_matematica(arquivo: ArquivoResultado, cargo: int) -> Optional[Dict[int, str]]:
+    """Situacao de cada candidato quando o resultado ja nao pode mudar (CS-128).
+
+    So para cargos majoritarios e arquivo ainda aberto. Devolve None quando
+    ainda pode mudar ou quando falta dado. A conta e a do pior caso: os
+    eleitores das secoes que faltam (`e.esnt`) votam todos contra quem esta
+    na frente. Cada eleitor da no maximo 1 voto a cada candidato (no Senado
+    com 2 vagas sao 2 votos, mas em candidatos diferentes), entao ninguem
+    ganha mais que `eleitores_restantes`. Empate e tratado como indefinido.
+
+    Presidente e governador: o TSE publica a propria marca (`md`); so vale
+    quando a nossa conta chega ao MESMO resultado. Senador: o TSE nao marca,
+    vale a nossa conta.
+    """
+    if arquivo.final or cargo not in CARGOS_MAJORITARIOS_DEFINIVEIS:
+        return None
+    restante = arquivo.eleitores_restantes
+    if restante is None or restante < 0:
+        return None
+    # Sub judice entra na disputa: se a candidatura for liberada, os votos
+    # contam. Por isso o ranking usa todos, e o resultado so vale quando
+    # ninguem sub judice cai numa posicao decisiva.
+    disputa = sorted(
+        (c for c in arquivo.candidatos if c.votos is not None),
+        key=lambda c: c.votos or 0,
+        reverse=True,
+    )
+    if not disputa:
+        return None
+    votos = [int(c.votos or 0) for c in disputa]
+
+    def _monta(primeiros: int, situacao: str) -> Optional[Dict[int, str]]:
+        if any(not c.valido for c in disputa[:primeiros]):
+            return None
+        out = {c.sqcand: NAO_ELEITO for c in arquivo.candidatos}
+        for c in disputa[:primeiros]:
+            out[c.sqcand] = situacao
+        return out
+
+    if cargo in CARGOS_MAIORIA_ABSOLUTA:
+        total = arquivo.votos_validos if arquivo.votos_validos is not None else sum(votos)
+        # Eleito: maioria absoluta mesmo com todos os restantes contra.
+        if 2 * votos[0] > total + restante:
+            nossa, resultado = "e", _monta(1, ELEITO)
+        elif any(2 * (v + restante) > total + restante for v in votos):
+            return None  # alguem ainda pode passar de 50%
+        elif len(votos) >= 2 and (len(votos) == 2 or votos[2] + restante < votos[1]):
+            nossa, resultado = "s", _monta(2, SEGUNDO_TURNO)
+        else:
+            return None
+        return resultado if arquivo.matematicamente_tse == nossa else None
+
+    vagas = arquivo.vagas or 0
+    if vagas < 1 or len(votos) < vagas:
+        return None
+    if len(votos) > vagas and votos[vagas] + restante >= votos[vagas - 1]:
+        return None
+    return _monta(vagas, ELEITO)
