@@ -144,3 +144,18 @@ totalization closed, has `eleito = true` **and** a status starting with
 for candidates who went to the runoff. Gender and race come from the candidacy
 (`candidacy.gender`/`race`), because the results file does not carry them. A
 partial (still open) result never counts as elected anywhere in the product.
+
+### Collection
+
+A curated, admin-edited page that groups people around a subject, stored in
+`collection`. Each person is a **Collection Member** (`collection_member`):
+a parliamentarian, a candidate, or someone outside the database, with an
+optional `tier` (1 to 5) whose meaning is set per collection in
+`tier_labels`, a context text and sources. **Collection Blocks**
+(`collection_block`) interleave content: free text, links, documents, or a
+pointer to a speech, nominal vote, proposition or quota expense in the
+database. A member's link to the rest of the schema is resolved on every read
+through `parliamentarian_id`, `candidacy_id` and the CPF, so a candidate who
+takes office later, or a person who moves to another house or level, points to
+the right profile without rewriting the collection. Only published collections
+are readable without login.

@@ -160,6 +160,35 @@ GROUP BY 1, 2;
 e comparar com os eleitos (`e = "s"` e `st` "Eleito...") do arquivo
 `<base>/ele2026/6259/dados/ba/ba-c0006-e006259-u.json`.
 
+## Coleções curadas (CS-132)
+
+Página editada pelo admin que reúne pessoas em torno de um tema, com blocos de
+conteúdo intercalados. Regras em `services/collection.py`.
+
+| Rota | Quem | O quê |
+|---|---|---|
+| `GET /api/collections` | qualquer um, sem login | coleções publicadas |
+| `GET /api/collections/{slug}` | qualquer um, sem login | coleção publicada completa (404 se rascunho) |
+| `GET /api/admin/collections[/{id}]` | admin | todas, rascunhos incluídos |
+| `POST /api/admin/collections`, `PUT /api/admin/collections/{id}` | admin | cria e edita título, slug, situação, rótulos dos níveis |
+| `PUT /api/admin/collections/{id}/members` | admin | grava a lista completa de pessoas (o que não veio, sai) |
+| `PUT /api/admin/collections/{id}/blocks` | admin | grava a lista completa de blocos, na ordem recebida |
+| `DELETE /api/admin/collections/{id}` | admin | apaga a coleção com pessoas e blocos |
+
+Cada pessoa volta com `parliamentarian`, `candidacy` (com o resultado do último
+turno), `expenses` (cota por ano dos últimos 4 anos, com `aircraft` = fretamento
+de aeronaves) e `assets` (bens declarados ao TSE por eleição). Esses vínculos
+são resolvidos a cada leitura:
+
+| Regra | Por quê |
+|---|---|
+| `parliamentarian_id` informado tem precedência | senador não tem CPF na base |
+| Sem ele, parlamentar pelo CPF ou pela candidatura mais recente do CPF | candidato eleito passa a apontar para o perfil quando a legislatura nova entra na base, sem regravar nada |
+| `parliamentarian: null` e `candidacy: null` = pessoa fora da base | a tela mostra só nome, `role_label` e contexto |
+| Bloco com `ref: null` = registro de origem sumiu da base | o bloco continua com o texto do admin |
+
+Toda escrita entra no `admin_audit_log`.
+
 ## Presença no card de Estatísticas (CS-79)
 
 `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve
