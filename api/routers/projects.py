@@ -6,7 +6,7 @@ import calendar
 from datetime import date, datetime, time, timedelta
 import json
 import os
-from typing import Any, List, Literal, Mapping, Optional
+from typing import Any, Dict, List, Literal, Mapping, Optional
 from zoneinfo import ZoneInfo
 import unicodedata
 
@@ -21,7 +21,8 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import asc, desc, func, null, nullslast, select
+from sqlalchemy import asc, desc, func, null, nullslast, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 try:
@@ -130,6 +131,13 @@ class ProjectFavoriteOrderUpdate(BaseModel):
     """Nova ordem pessoal: a lista completa de monitorados, já ordenada."""
 
     ordered_parliamentarian_ids: List[int]
+
+
+class CandidacyTurnosOut(BaseModel):
+    """Em quais turnos a candidatura estava na selecao da pessoa (CS-129)."""
+
+    candidacy_id: int
+    turnos: List[int]
 
 
 class CandidacyFavoriteOut(BaseModel):
@@ -1268,6 +1276,42 @@ def list_my_candidacy_favorites(
         .scalars()
         .all()
     )
+
+
+CICLO_SELECAO_TURNO = "ele2026"
+
+
+@router.get(
+    "/me/candidacy-turnos",
+    response_model=List[CandidacyTurnosOut],
+    summary="Em quais turnos o usuário tinha selecionado cada candidatura",
+)
+def list_my_candidacy_turnos(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> List[CandidacyTurnosOut]:
+    """Foto da selecao no fechamento de cada turno (`projetos_candidacy_turno`).
+
+    Diferente de /me/candidacy-favorites (selecao viva), nao muda quando a
+    pessoa desmarca: e o que a busca usa para o selo "1º", "2º" ou "1º e 2º".
+    Tabela ausente (janela do deploy antes da migration cs129) = lista vazia.
+    """
+    project = _get_project_from_token_email(request, db)
+    try:
+        rows = db.execute(
+            text(
+                "SELECT candidacy_id, turno FROM projetos_candidacy_turno "
+                "WHERE projeto_id = :p AND ciclo = :c ORDER BY candidacy_id, turno"
+            ),
+            {"p": project.id, "c": CICLO_SELECAO_TURNO},
+        ).all()
+    except SQLAlchemyError:
+        db.rollback()
+        return []
+    turnos: Dict[int, List[int]] = {}
+    for row in rows:
+        turnos.setdefault(int(row.candidacy_id), []).append(int(row.turno))
+    return [CandidacyTurnosOut(candidacy_id=cid, turnos=t) for cid, t in turnos.items()]
 
 
 @router.post(

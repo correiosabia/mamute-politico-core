@@ -119,6 +119,10 @@ PYTHONPATH=/app
 # (election_result_notice). Pode sair do cron depois do 2º turno (25/10/2026).
 */15 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh resultado-eleicao -- /bin/sh -c "/usr/local/bin/python -m mamute_scrappers.tse_crawler.resultados && /usr/local/bin/python -m mamute_scrappers.scripts.notificacao.resultado_eleicao" >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# Foto de quem cada pessoa selecionou no 2º turno (CS-129): 17:05 de Brasília
+# do domingo da votação. Roda uma vez; o 1º turno foi registrado em 05/10.
+5 20 25 10 * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh selecao-turno-2 -- /usr/local/bin/python -m mamute_scrappers.scripts.selecao_por_turno --turno 2 >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # --- Relatórios por e-mail (provedor definido por MAIL_PROVIDER; hoje: Mailgun) ---
 # Uma linha por periodicidade: CADA job roda no seu horário e só envia aos projetos
 # cujo tier tem aquela periodicidade em `tiers.detalhes.periodicidade_email`. Assim
