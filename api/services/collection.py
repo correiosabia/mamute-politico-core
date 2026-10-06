@@ -191,6 +191,19 @@ def _buscar_colecao(
     return db.execute(stmt).scalars().first()
 
 
+def get_collection_meta(
+    db: Session, *, slug: str, incluir_rascunhos: bool = False
+) -> Optional[dict[str, Any]]:
+    """Só o cabeçalho da coleção, sem resolver membros: para rotas derivadas."""
+
+    if not tabelas_disponiveis(db, *TABELAS):
+        return None
+    colecao = _buscar_colecao(db, slug=slug)
+    if colecao is None or (colecao.status != STATUS_PUBLISHED and not incluir_rascunhos):
+        return None
+    return {"id": int(colecao.id), "slug": colecao.slug, "status": colecao.status}
+
+
 def get_collection(
     db: Session,
     *,
@@ -384,7 +397,11 @@ def _candidatura_out(c: Candidacy, r: Optional[CandidacyResult]) -> dict[str, An
     }
 
 
-def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[str, Any]]:
+def resolver_vinculos(
+    db: Session, membros: list[CollectionMember]
+) -> list[tuple[Optional[Parliamentarian], Optional[Candidacy]]]:
+    """Quem é cada pessoa hoje na base: (parlamentar, candidatura), na ordem dos membros."""
+
     cpfs = {c for c in (normalizar_cpf(m.cpf) for m in membros) if c}
     parl_por_id = _por_id(db, Parliamentarian, (m.parliamentarian_id for m in membros))
     cand_por_id = _por_id(db, Candidacy, (m.candidacy_id for m in membros))
@@ -407,11 +424,14 @@ def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[s
         vinculos.append((parl, cand))
 
     parl_por_id.update(_por_id(db, Parliamentarian, ids_via_candidatura - set(parl_por_id)))
-    vinculos = [
+    return [
         (parl or (parl_por_id.get(int(cand.parliamentarian_id)) if cand and cand.parliamentarian_id else None), cand)
         for parl, cand in vinculos
     ]
 
+
+def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[str, Any]]:
+    vinculos = resolver_vinculos(db, membros)
     parl_ids = {int(p.id) for p, _ in vinculos if p is not None}
     cand_ids = {int(c.id) for _, c in vinculos if c is not None}
     resultados = _resultados(db, cand_ids)
@@ -616,7 +636,12 @@ def delete_collection(db: Session, collection_id: int) -> bool:
 def replace_members(
     db: Session, collection_id: int, itens: list[dict[str, Any]]
 ) -> Optional[list[dict[str, Any]]]:
-    """Grava a lista completa de pessoas. Item com `id` atualiza; sem `id`, cria."""
+    """Grava a lista completa de pessoas. Item com `id` atualiza; sem `id`, cria.
+
+    Vínculo (`cpf`, `parliamentarian_id`, `candidacy_id`) que não vem no item
+    de uma pessoa existente fica como está: a leitura não devolve o CPF, e o
+    editor não pode apagar o vínculo só por salvar o texto.
+    """
 
     c = _buscar_colecao(db, collection_id=collection_id)
     if c is None:
@@ -627,8 +652,19 @@ def replace_members(
             select(CollectionMember).where(CollectionMember.collection_id == c.id)
         ).scalars()
     }
-    parl_validos = set(_por_id(db, Parliamentarian, (i.get("parliamentarian_id") for i in itens)))
-    cand_validas = set(_por_id(db, Candidacy, (i.get("candidacy_id") for i in itens)))
+    # Os vínculos que já estavam gravados também entram: o item pode não trazê-los.
+    parl_validos = set(
+        _por_id(
+            db,
+            Parliamentarian,
+            [i.get("parliamentarian_id") for i in itens] + [m.parliamentarian_id for m in existentes.values()],
+        )
+    )
+    cand_validas = set(
+        _por_id(
+            db, Candidacy, [i.get("candidacy_id") for i in itens] + [m.candidacy_id for m in existentes.values()]
+        )
+    )
     mantidos: set[int] = set()
     for posicao, item in enumerate(itens):
         nome = _texto(item.get("display_name"))
@@ -637,6 +673,15 @@ def replace_members(
         tier = item.get("tier")
         if tier is not None and (not isinstance(tier, int) or not 1 <= tier <= 5):
             raise CollectionError(f"Nível inválido para {nome}: use um número de 1 a 5.")
+        item_id = item.get("id")
+        atual = existentes.get(int(item_id)) if item_id is not None else None
+        if atual is not None:
+            item = {
+                "cpf": atual.cpf,
+                "parliamentarian_id": atual.parliamentarian_id,
+                "candidacy_id": atual.candidacy_id,
+                **item,
+            }
         cpf_bruto = item.get("cpf")
         cpf = normalizar_cpf(cpf_bruto)
         if cpf_bruto and not cpf:
@@ -648,9 +693,8 @@ def replace_members(
         if cand_id is not None and int(cand_id) not in cand_validas:
             raise CollectionError(f"{nome}: candidatura {cand_id} não existe na base.")
 
-        item_id = item.get("id")
-        if item_id is not None and int(item_id) in existentes:
-            m = existentes[int(item_id)]
+        if atual is not None:
+            m = atual
             mantidos.add(int(item_id))
         else:
             m = CollectionMember(collection_id=c.id)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -20,11 +20,15 @@ try:
     from ..dependencies import get_db
     from ..security import require_ghost_admin
     from ..services import collection as svc
+    from ..services import collection_suggestions as busca
+    from ..services import collection_travel as viagens
     from .admin import _log_admin_action
 except ImportError:  # execução dentro de api/
     from dependencies import get_db
     from security import require_ghost_admin
     from services import collection as svc
+    from services import collection_suggestions as busca
+    from services import collection_travel as viagens
     from routers.admin import _log_admin_action
 
 router = APIRouter(prefix="/collections", tags=["collections"])
@@ -99,6 +103,15 @@ def read_published(slug: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     if colecao is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
     return colecao
+
+
+@router.get("/{slug}/travel")
+def read_published_travel(slug: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Viagens coincidentes dos membros (cota parlamentar). Só de coleção publicada."""
+    colecao = svc.get_collection_meta(db, slug=slug)
+    if colecao is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
+    return viagens.travel_overlaps(db, colecao["id"])
 
 
 # --------------------------------------------------------------------------
@@ -209,7 +222,8 @@ def replace_members_admin(
 ) -> list[dict[str, Any]]:
     try:
         membros = svc.replace_members(
-            db, collection_id, [m.model_dump() for m in payload.members]
+            # exclude_unset: vínculo ausente no corpo é "não mexer", não "apagar".
+            db, collection_id, [m.model_dump(exclude_unset=True) for m in payload.members]
         )
     except svc.CollectionError as exc:
         db.rollback()
@@ -254,3 +268,37 @@ def replace_blocks_admin(
     )
     db.commit()
     return blocos
+
+
+@admin_router.get("/{collection_id}/travel")
+def read_admin_travel(
+    collection_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    encontros = viagens.travel_overlaps(db, collection_id)
+    if encontros is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
+    return encontros
+
+
+@admin_router.get("/{collection_id}/search")
+def search_admin(
+    collection_id: int,
+    q: str = Query(..., description="Termo buscado nos registros dos membros."),
+    kinds: Optional[str] = Query(None, description="speech,vote,proposition (padrão: todos)."),
+    member_id: Optional[int] = None,
+    limit: int = Query(busca.LIMITE_PADRAO, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    tipos = tuple(k for k in (kinds or "").split(",") if k in busca.TIPOS) or busca.TIPOS
+    try:
+        achados = busca.search_records(
+            db, collection_id, termo=q, tipos=tipos, member_id=member_id, limite=limit
+        )
+    except svc.CollectionError as exc:
+        raise _erro(exc) from exc
+    if achados is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
+    return achados
