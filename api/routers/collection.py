@@ -222,7 +222,8 @@ def replace_members_admin(
 ) -> list[dict[str, Any]]:
     try:
         membros = svc.replace_members(
-            db, collection_id, [m.model_dump() for m in payload.members]
+            # exclude_unset: vínculo ausente no corpo é "não mexer", não "apagar".
+            db, collection_id, [m.model_dump(exclude_unset=True) for m in payload.members]
         )
     except svc.CollectionError as exc:
         db.rollback()

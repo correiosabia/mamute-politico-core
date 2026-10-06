@@ -346,3 +346,25 @@ def test_admin_exige_gate(public_client):
     """Sem token de admin, o painel responde como se a rota não existisse."""
     resp = public_client.get("/api/admin/collections")
     assert resp.status_code in (401, 404, 422)
+
+
+def test_salvar_sem_vinculo_no_corpo_preserva_o_vinculo(client, session):
+    """A leitura não devolve o CPF: o editor salva só o texto e o vínculo fica."""
+    _base(session)
+    criada = _cria(client)
+    url = f"/api/admin/collections/{criada['id']}/members"
+    ana = client.put(url, json={"members": [{"display_name": "Ana", "cpf": "11111111111", "tier": 1}]}).json()[0]
+    assert ana["parliamentarian"]["id"] == 10
+
+    editada = client.put(
+        url, json={"members": [{"id": ana["id"], "display_name": "Ana editada", "tier": 2}]}
+    ).json()[0]
+    assert editada["display_name"] == "Ana editada" and editada["tier"] == 2
+    assert editada["parliamentarian"]["id"] == 10
+    assert editada["candidacy"]["id"] == 101
+
+    # Mandar o campo explicitamente vazio desfaz o vínculo.
+    solta = client.put(
+        url, json={"members": [{"id": ana["id"], "display_name": "Ana", "cpf": None}]}
+    ).json()[0]
+    assert solta["parliamentarian"] is None
