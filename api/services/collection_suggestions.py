@@ -9,8 +9,10 @@ Regras:
 1. SÓ OS MEMBROS DA COLEÇÃO. A busca roda dentro dos parlamentares já
    vinculados (vínculo resolvido na leitura, como no resto das coleções), ou
    de um membro só quando o admin pede.
-2. VOTAÇÃO AGRUPADA. Uma votação nominal vira um grupo (proposição + data)
-   com o voto de cada membro: é assim que se vê quem votou junto.
+2. VOTAÇÃO AGRUPADA. Uma votação nominal vira um grupo (proposição + data +
+   descrição) com o voto de cada membro: é assim que se vê quem votou junto.
+   A descrição entra na chave porque a mesma proposição tem várias votações no
+   mesmo dia (texto principal, cada emenda destacada).
 3. ADMIN ESCOLHE. Nada aqui grava bloco; o editor manda os escolhidos pela
    rota de blocos.
 """
@@ -150,9 +152,9 @@ def search_records(
             .order_by(RollCallVote.vote_date.desc().nullslast(), RollCallVote.id.desc())
             .limit(limite * 20)
         ).all()
-        grupos: dict[tuple[int, Optional[str]], dict[str, Any]] = {}
+        grupos: dict[tuple[int, Optional[str], Optional[str]], dict[str, Any]] = {}
         for voto, prop in linhas:
-            chave = (int(prop.id), _iso(voto.vote_date))
+            chave = (int(prop.id), _iso(voto.vote_date), voto.description)
             grupo = grupos.get(chave)
             if grupo is None:
                 if len(grupos) >= limite:

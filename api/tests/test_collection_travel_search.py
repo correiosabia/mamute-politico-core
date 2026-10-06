@@ -262,3 +262,24 @@ def test_busca_por_membro_e_termo_curto(client, session):
 
     resp = client.get(f"/api/admin/collections/{cid}/search", params={"q": "fu"})
     assert resp.status_code == 422 and "3 letras" in resp.json()["detail"]
+
+
+def test_votacoes_do_mesmo_dia_ficam_separadas(client, session):
+    _base_busca(session)
+    session.add_all(
+        [
+            RollCallVote(id=64, parliamentarian_id=1, proposition_id=50, vote="Não",
+                         vote_date=date(ANO, 3, 1), description="Votação da Emenda nº 2"),
+            RollCallVote(id=65, parliamentarian_id=2, proposition_id=50, vote="Sim",
+                         vote_date=date(ANO, 3, 1), description="Votação da Emenda nº 2"),
+        ]
+    )
+    session.commit()
+    cid = _colecao(
+        client,
+        [{"display_name": "Ana", "parliamentarian_id": 1}, {"display_name": "Beto", "parliamentarian_id": 2}],
+    )
+    r = client.get(f"/api/admin/collections/{cid}/search", params={"q": "garantidor", "kinds": "vote"}).json()
+    assert len(r["votes"]) == 2
+    emenda = next(g for g in r["votes"] if g["description"] == "Votação da Emenda nº 2")
+    assert emenda["tally"] == {"Não": 1, "Sim": 1}
