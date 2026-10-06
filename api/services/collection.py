@@ -191,6 +191,19 @@ def _buscar_colecao(
     return db.execute(stmt).scalars().first()
 
 
+def get_collection_meta(
+    db: Session, *, slug: str, incluir_rascunhos: bool = False
+) -> Optional[dict[str, Any]]:
+    """Só o cabeçalho da coleção, sem resolver membros: para rotas derivadas."""
+
+    if not tabelas_disponiveis(db, *TABELAS):
+        return None
+    colecao = _buscar_colecao(db, slug=slug)
+    if colecao is None or (colecao.status != STATUS_PUBLISHED and not incluir_rascunhos):
+        return None
+    return {"id": int(colecao.id), "slug": colecao.slug, "status": colecao.status}
+
+
 def get_collection(
     db: Session,
     *,
@@ -384,7 +397,11 @@ def _candidatura_out(c: Candidacy, r: Optional[CandidacyResult]) -> dict[str, An
     }
 
 
-def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[str, Any]]:
+def resolver_vinculos(
+    db: Session, membros: list[CollectionMember]
+) -> list[tuple[Optional[Parliamentarian], Optional[Candidacy]]]:
+    """Quem é cada pessoa hoje na base: (parlamentar, candidatura), na ordem dos membros."""
+
     cpfs = {c for c in (normalizar_cpf(m.cpf) for m in membros) if c}
     parl_por_id = _por_id(db, Parliamentarian, (m.parliamentarian_id for m in membros))
     cand_por_id = _por_id(db, Candidacy, (m.candidacy_id for m in membros))
@@ -407,11 +424,14 @@ def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[s
         vinculos.append((parl, cand))
 
     parl_por_id.update(_por_id(db, Parliamentarian, ids_via_candidatura - set(parl_por_id)))
-    vinculos = [
+    return [
         (parl or (parl_por_id.get(int(cand.parliamentarian_id)) if cand and cand.parliamentarian_id else None), cand)
         for parl, cand in vinculos
     ]
 
+
+def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[str, Any]]:
+    vinculos = resolver_vinculos(db, membros)
     parl_ids = {int(p.id) for p, _ in vinculos if p is not None}
     cand_ids = {int(c.id) for _, c in vinculos if c is not None}
     resultados = _resultados(db, cand_ids)
