@@ -49,6 +49,8 @@ def test_parse_dia_2023():
 def test_lugar_e_cargo():
     assert lugar("Reunião no Banco Central, em Brasilia, para tratar") == "Brasília"
     assert lugar("Reunião por videoconferência, para tratar de supervisão.") is None
+    erro_da_fonte = parse_dia("<div><div>18:30 às 19:30 – Audiência, por videoconfêrencia, com Fulano.</div></div>")
+    assert erro_da_fonte[0]["remote"] is True
     assert cargo("Presi - 01/04/2025") == ("Presi", "Presidente do Banco Central")
     assert cargo("Dinor|Diorf - 15/01/2026")[1] == (
         "Diretor de Regulação e Diretor de Organização do Sistema Financeiro e de Resolução"

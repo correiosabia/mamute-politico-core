@@ -111,6 +111,12 @@ class _Compromissos(HTMLParser):
             self.itens.append(data)
 
 
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+
+    return "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
+
+
 def _limpa(texto: str) -> str:
     return _ESPACOS.sub(" ", texto.translate(_INVISIVEIS).replace("\xa0", " ")).strip()
 
@@ -152,7 +158,8 @@ def parse_dia(html: str) -> list[dict[str, Any]]:
                 "ends_at": fim,
                 "description": texto,
                 "place": lugar(texto),
-                "remote": "videoconfer" in texto.lower(),
+                # A fonte escreve até "videoconfêrencia": compara sem acento.
+                "remote": "videoconfer" in _sem_acento(texto.lower()),
             }
         )
     return saida
