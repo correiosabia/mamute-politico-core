@@ -68,6 +68,7 @@ def session() -> Session:
     Base.metadata.create_all(engine, tables=_TABELAS)
     s = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
     collection_travel._cache.clear()
+    collection_travel._cache_base.clear()
     yield s
     s.close()
 
@@ -194,9 +195,59 @@ def test_viagens_publicas_so_de_colecao_publicada(client, session):
     main.app.dependency_overrides[require_ghost_admin] = lambda: "admin@mamute.com"
     client.put(f"/api/admin/collections/{cid}", json={"status": "published"})
     main.app.dependency_overrides.pop(require_ghost_admin)
+    # Publicada, mas o cruzamento nasce fechado até o admin liberar.
+    assert client.get("/api/collections/caso/travel").status_code == 404
+
+    main.app.dependency_overrides[require_ghost_admin] = lambda: "admin@mamute.com"
+    client.put(f"/api/admin/collections/{cid}", json={"settings": {"travel_public": True}})
+    main.app.dependency_overrides.pop(require_ghost_admin)
     resp = client.get("/api/collections/caso/travel")
     assert resp.status_code == 200
     assert resp.json()["events"][0]["place"] == "São Paulo"
+
+
+def test_grupo_de_controle(client, session, monkeypatch):
+    """O encontro traz quantos da base inteira foram à cidade no dia e o esperado ao acaso."""
+    monkeypatch.setattr(collection_travel, "BASE_MINIMA", 5)
+    _base_viagens(session)
+    passagem = "PASSAGEM AÉREA - SIGEPA"
+    dia = date(ANO, 3, 10)
+    outros = []
+    for i in range(20, 28):
+        outros.append(
+            Parliamentarian(id=i, type="Deputado", name=f"Dep {i}", full_name=f"DEP NUMERO {i}", state_elected="RS")
+        )
+        # Todos emitem bilhetes em outro dia; só os dois primeiros também vão a SP no dia 10/03.
+        outros.append(_gasto(100 + i, i, passagem, date(ANO, 3, 11), f"Passageiro: DEP NUMERO {i}; Trecho: POA/REC"))
+        if i < 22:
+            outros.append(_gasto(200 + i, i, passagem, dia, f"Passageiro: DEP NUMERO {i}; Trecho: POA/GRU"))
+    session.add_all(outros)
+    session.commit()
+    cid = _colecao(
+        client,
+        [{"display_name": "Ana", "parliamentarian_id": 1}, {"display_name": "Beto", "parliamentarian_id": 2}],
+    )
+    dados = client.get(f"/api/admin/collections/{cid}/travel").json()
+    sp = next(e for e in dados["events"] if e["kind"] == "same_city" and e["date"] == f"{ANO}-03-10")
+    ctx = sp["context"]
+    # Ana, Beto e mais dois deputados de fora da lista (Caio está em casa, não conta).
+    assert ctx["house"] == "camara"
+    assert ctx["travelers"] == 4 and ctx["listed"] == 2
+    # 10 deputados viajaram para fora no período (Ana, Beto e os 8 de fora; Caio só foi para casa).
+    assert dados["control"]["camara"] == {"travelers": 10, "listed": 2}
+    assert ctx["expected"] == round(4 * 2 / 10, 2)
+    # P(2 da lista entre 4 sorteados de 10, com 2 marcados) = C(2,2)*C(8,2)/C(10,4)
+    assert ctx["p_value"] == pytest.approx(28 / 210)
+    assert ctx["unusual"] is False
+    # Dias com viagem válida na Câmara: 10/03, 11/03, 02/04; SP só em 10/03 -> mediana 0.
+    assert ctx["typical_day"] == 0
+
+    # Base pequena demais (o Senado quase não marca o passageiro): sem contexto.
+    monkeypatch.setattr(collection_travel, "BASE_MINIMA", 30)
+    collection_travel._cache.clear()
+    collection_travel._cache_base.clear()
+    dados = client.get(f"/api/admin/collections/{cid}/travel").json()
+    assert all(e.get("context") is None for e in dados["events"])
 
 
 def _base_busca(session: Session) -> None:
