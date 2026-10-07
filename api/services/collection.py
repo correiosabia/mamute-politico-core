@@ -201,7 +201,12 @@ def get_collection_meta(
     colecao = _buscar_colecao(db, slug=slug)
     if colecao is None or (colecao.status != STATUS_PUBLISHED and not incluir_rascunhos):
         return None
-    return {"id": int(colecao.id), "slug": colecao.slug, "status": colecao.status}
+    return {
+        "id": int(colecao.id),
+        "slug": colecao.slug,
+        "status": colecao.status,
+        "settings": colecao.settings if isinstance(colecao.settings, dict) else {},
+    }
 
 
 def get_collection(
@@ -489,6 +494,7 @@ def _ref_proposition(p: Proposition) -> dict[str, Any]:
         "acronym": p.proposition_acronym,
         "number": p.proposition_number,
         "year": p.presentation_year,
+        "date": _iso(p.presentation_date),
         "title": p.title,
         "summary": p.summary,
         "status": p.current_status,

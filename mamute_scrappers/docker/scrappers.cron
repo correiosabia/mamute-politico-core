@@ -192,6 +192,11 @@ PYTHONPATH=/app
 15 7 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh cota-camara -- /usr/local/bin/python -m mamute_scrappers.camara_crawler.expenses --ano $(date +\%Y) >> /proc/1/fd/1 2>> /proc/1/fd/2
 30 7 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh cota-senado -- /usr/local/bin/python -m mamute_scrappers.senado_crawler.expenses --ano $(date +\%Y) >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# Agenda da diretoria do Banco Central (CS-135): mês passado até +30 dias,
+# diário às 07h45 UTC. API aberta, ~1 requisição por mês coberto. Backfill
+# (uma vez): python -m mamute_scrappers.agenda_crawler.banco_central --desde 2019-01-01
+45 7 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-bcb -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.banco_central >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # Backfill 2022 -> ano corrente (a cada 1h no minuto 20 — livre entre os jobs
 # horarios, que ocupam 10, 25, 35, 40 e 55). Sao 10 chunks ano x casa; com 2
 # por execucao a fila fecha em ~5 horas e depois vira no-op.

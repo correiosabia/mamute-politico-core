@@ -18,11 +18,18 @@ Regras (todas aqui, nenhuma na tela):
    (`date_basis`) e a tela mostra a diferença.
 4. MESMO VOO só existe no Senado (é a única fonte com número do voo).
 5. MESMO HOTEL é o mesmo CNPJ (com a filial) com notas a até 2 dias de distância.
+6. GRUPO DE CONTROLE. Cada encontro "mesma cidade" vem com o contexto da base
+   inteira (as mesmas regras aplicadas a todos os parlamentares): quantos foram
+   para aquela cidade naquele dia, quantos vão num dia típico e quantos da
+   lista seriam esperados se a escolha fosse ao acaso (hipergeométrica). Sem
+   isso, cinco pessoas em São Paulo no mesmo dia pode ser só rotina.
 """
 
 from __future__ import annotations
 
+import math
 import re
+import statistics
 import time
 import unicodedata
 from collections import defaultdict
@@ -52,6 +59,13 @@ DIAS_HOTEL = 2
 # Leitura pública: o cruzamento é caro e o dado muda uma vez por dia.
 _CACHE_SEGUNDOS = 3600
 _cache: dict[tuple[int, str], tuple[float, dict[str, Any]]] = {}
+# Linha de base (todos os parlamentares): varre ~140 mil notas, uns 10 s em prod.
+_CACHE_BASE_SEGUNDOS = 6 * 3600
+_cache_base: dict[int, tuple[float, "_LinhaDeBase"]] = {}
+# Abaixo disso o encontro é marcado como incomum para o tamanho do grupo.
+P_INCOMUM = 0.01
+# Base pequena demais não serve de comparação (o Senado quase não marca o passageiro).
+BASE_MINIMA = 30
 
 # Aeroportos do Brasil: código IATA -> (cidade, UF). Fora da lista, o código
 # vira a própria cidade e a UF fica desconhecida (não é descartado como "casa").
@@ -200,6 +214,100 @@ def _trechos(e: ParliamentaryExpense, parl: Parliamentarian) -> list[dict[str, A
     ]
 
 
+def _viagens_validas(e: Any, parl: Parliamentarian) -> list[tuple[str, dict[str, Any]]]:
+    """(cidade, trecho) das viagens do próprio parlamentar, sem Brasília nem o estado dele."""
+
+    casa_uf = (parl.state_elected or "").upper()
+    saida = []
+    for t in _trechos(e, parl):
+        cidade, uf = _cidade(t["dest"])
+        if t["dest"] == "BSB" or (uf and uf == casa_uf):
+            continue
+        saida.append((cidade, t))
+    return saida
+
+
+class _LinhaDeBase:
+    """Quem, na base inteira, viajou para cada cidade em cada dia (regras 1 e 2)."""
+
+    def __init__(self) -> None:
+        self.dias: dict[tuple[str, date, str], set[int]] = defaultdict(set)
+        self.dias_ativos: dict[str, set[date]] = defaultdict(set)
+        self.viajantes: dict[str, set[int]] = defaultdict(set)
+        self._tipico: dict[tuple[str, str], float] = {}
+
+    def tipico(self, casa: str, cidade: str) -> float:
+        """Mediana de viajantes para a cidade nos dias em que a casa emitiu algum bilhete."""
+        chave = (casa, cidade)
+        if chave not in self._tipico:
+            contagens = [len(self.dias.get((casa, d, cidade), ())) for d in self.dias_ativos.get(casa, ())]
+            self._tipico[chave] = float(statistics.median(contagens)) if contagens else 0.0
+        return self._tipico[chave]
+
+
+def _linha_de_base(db: Session, ano_corte: int) -> _LinhaDeBase:
+    guardado = _cache_base.get(ano_corte)
+    if guardado and time.monotonic() - guardado[0] < _CACHE_BASE_SEGUNDOS:
+        return guardado[1]
+    parls = {int(p.id): p for p in db.execute(select(Parliamentarian)).scalars()}
+    base = _LinhaDeBase()
+    linhas = db.execute(
+        select(
+            ParliamentaryExpense.parliamentarian_id,
+            ParliamentaryExpense.house,
+            ParliamentaryExpense.details,
+            ParliamentaryExpense.document_date,
+            ParliamentaryExpense.expense_type,
+        ).where(
+            ParliamentaryExpense.year >= ano_corte,
+            ParliamentaryExpense.net_value > 0,
+            ParliamentaryExpense.expense_type.ilike("%passage%"),
+        )
+    )
+    for linha in linhas:
+        parl = parls.get(int(linha.parliamentarian_id)) if linha.parliamentarian_id is not None else None
+        if parl is None or not _e_passagem(linha.expense_type):
+            continue
+        for cidade, t in _viagens_validas(linha, parl):
+            base.dias[(linha.house, t["date"], cidade)].add(int(parl.id))
+            base.dias_ativos[linha.house].add(t["date"])
+            base.viajantes[linha.house].add(int(parl.id))
+    _cache_base[ano_corte] = (time.monotonic(), base)
+    return base
+
+
+def _cauda_hipergeometrica(k: int, populacao: int, marcados: int, sorteados: int) -> float:
+    """P(X >= k): chance de k ou mais da lista entre `sorteados`, se fosse ao acaso."""
+    if populacao <= 0 or sorteados <= 0:
+        return 1.0
+    total = math.comb(populacao, sorteados)
+    topo = min(marcados, sorteados)
+    return sum(
+        math.comb(marcados, i) * math.comb(populacao - marcados, sorteados - i)
+        for i in range(max(k, 0), topo + 1)
+    ) / total
+
+
+def _contexto(
+    base: _LinhaDeBase, casa: str, dia: date, cidade: str, membros_casa: set[int], na_lista: int
+) -> Optional[dict[str, Any]]:
+    if len(base.viajantes.get(casa, ())) < BASE_MINIMA:
+        return None
+    viajantes = len(base.dias.get((casa, dia, cidade), ())) or na_lista
+    populacao = len(base.viajantes.get(casa, ())) or viajantes
+    marcados = len(membros_casa & base.viajantes.get(casa, set())) or na_lista
+    p = _cauda_hipergeometrica(na_lista, populacao, marcados, viajantes)
+    return {
+        "house": casa,
+        "travelers": viajantes,
+        "listed": na_lista,
+        "typical_day": base.tipico(casa, cidade),
+        "expected": round(viajantes * marcados / populacao, 2) if populacao else None,
+        "p_value": p,
+        "unusual": p < P_INCOMUM,
+    }
+
+
 def _pessoa(membro: CollectionMember, e: ParliamentaryExpense, extra: dict[str, Any]) -> dict[str, Any]:
     return {
         "member_id": int(membro.id),
@@ -262,14 +370,12 @@ def travel_overlaps(db: Session, collection_id: int) -> Optional[dict[str, Any]]
     hoteis: dict[str, list[tuple[date, dict[str, Any]]]] = defaultdict(list)
     nome_hotel: dict[str, str] = {}
 
+    casa_do_parl: dict[int, str] = {}
     for e in gastos:
         membro, parl = membro_por_parl[int(e.parliamentarian_id)]
-        casa_uf = (parl.state_elected or "").upper()
         if _e_passagem(e.expense_type):
-            for t in _trechos(e, parl):
-                cidade, uf = _cidade(t["dest"])
-                if t["dest"] == "BSB" or (uf and uf == casa_uf):
-                    continue
+            for cidade, t in _viagens_validas(e, parl):
+                casa_do_parl[int(membro.id)] = e.house
                 pessoa = _pessoa(
                     membro, e,
                     {"passenger": t["passenger"], "route": t["route"], "date": t["date"].isoformat(),
@@ -296,11 +402,22 @@ def travel_overlaps(db: Session, collection_id: int) -> Optional[dict[str, Any]]
                 {"kind": "same_flight", "date": dia.isoformat(), "place": _cidade(rota.split("/")[-1])[0],
                  "detail": f"Voo {voo}, trecho {rota}", "people": pessoas}
             )
+    base = _linha_de_base(db, ano_corte) if por_cidade else None
+    membros_por_casa: dict[str, set[int]] = defaultdict(set)
+    for parl_id, (m, _p) in membro_por_parl.items():
+        if int(m.id) in casa_do_parl:
+            membros_por_casa[casa_do_parl[int(m.id)]].add(parl_id)
     for (dia, cidade), pessoas in por_cidade.items():
         if _distintos(pessoas) > 1:
+            casas = {casa_do_parl.get(p["member_id"]) for p in pessoas}
+            contexto = None
+            # Câmara (data de emissão) e Senado (data do voo) não se comparam: só casa única.
+            if base is not None and len(casas) == 1 and None not in casas:
+                casa = casas.pop()
+                contexto = _contexto(base, casa, dia, cidade, membros_por_casa[casa], _distintos(pessoas))
             eventos.append(
                 {"kind": "same_city", "date": dia.isoformat(), "place": cidade, "detail": None,
-                 "people": pessoas, "also_same_flight": (dia, cidade) in voos_vistos}
+                 "people": pessoas, "also_same_flight": (dia, cidade) in voos_vistos, "context": contexto}
             )
     for hotel, notas in hoteis.items():
         notas.sort(key=lambda n: n[0])
@@ -321,5 +438,10 @@ def travel_overlaps(db: Session, collection_id: int) -> Optional[dict[str, Any]]
     eventos.sort(key=lambda ev: ev["date"], reverse=True)
     eventos.sort(key=lambda ev: _distintos(ev["people"]), reverse=True)
     resultado["events"] = eventos
+    if base is not None:
+        resultado["control"] = {
+            casa: {"travelers": len(base.viajantes.get(casa, ())), "listed": len(ids & base.viajantes.get(casa, set()))}
+            for casa, ids in membros_por_casa.items()
+        }
     _cache[chave] = (time.monotonic(), resultado)
     return resultado

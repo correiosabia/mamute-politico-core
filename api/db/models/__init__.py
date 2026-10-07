@@ -9,6 +9,7 @@ from .candidacy import Candidacy
 from .chatbot_usage import ChatbotUsage
 from .committee import Committee
 from .collection import Collection, CollectionBlock, CollectionMember
+from .official_agenda import OfficialAgendaItem
 from .committee_attendance import CommitteeAttendance
 from .election_result import CandidacyResult, ElectionResultNotice
 from .electoral_history import ElectoralHistory
@@ -51,6 +52,7 @@ __all__ = [
     "Collection",
     "CollectionBlock",
     "CollectionMember",
+    "OfficialAgendaItem",
     "Committee",
     "CommitteeAttendance",
     "EditorialAgenda",

@@ -22,6 +22,7 @@ try:
     from ..services import collection as svc
     from ..services import collection_suggestions as busca
     from ..services import collection_travel as viagens
+    from ..services import official_agenda as agenda
     from .admin import _log_admin_action
 except ImportError:  # execução dentro de api/
     from dependencies import get_db
@@ -29,6 +30,7 @@ except ImportError:  # execução dentro de api/
     from services import collection as svc
     from services import collection_suggestions as busca
     from services import collection_travel as viagens
+    from services import official_agenda as agenda
     from routers.admin import _log_admin_action
 
 router = APIRouter(prefix="/collections", tags=["collections"])
@@ -107,11 +109,33 @@ def read_published(slug: str, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 @router.get("/{slug}/travel")
 def read_published_travel(slug: str, db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Viagens coincidentes dos membros (cota parlamentar). Só de coleção publicada."""
+    """Viagens coincidentes dos membros (cota parlamentar).
+
+    Só de coleção publicada e com `settings.travel_public` ligado pelo admin: o
+    cruzamento precisa de apuração antes de ir ao público, então nasce fechado.
+    """
+    colecao = svc.get_collection_meta(db, slug=slug)
+    if colecao is None or colecao["settings"].get("travel_public") is not True:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
+    return viagens.travel_overlaps(db, colecao["id"])
+
+
+def _termos_da_colecao(settings: dict[str, Any]) -> list[str]:
+    termos = settings.get("agenda_terms")
+    return [str(t) for t in termos] if isinstance(termos, list) else []
+
+
+@router.get("/{slug}/agenda")
+def read_published_agenda(slug: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Compromissos de agendas oficiais que citam os termos escolhidos pelo admin."""
     colecao = svc.get_collection_meta(db, slug=slug)
     if colecao is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
-    return viagens.travel_overlaps(db, colecao["id"])
+    try:
+        return agenda.search_agenda(db, _termos_da_colecao(colecao["settings"]))
+    except agenda.AgendaError:
+        # Termo inválido salvo antes da validação: o público só vê vazio.
+        return {"terms": [], "items": [], "sources": []}
 
 
 # --------------------------------------------------------------------------
@@ -280,6 +304,24 @@ def read_admin_travel(
     if encontros is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
     return encontros
+
+
+@admin_router.get("/{collection_id}/agenda")
+def read_admin_agenda(
+    collection_id: int,
+    q: Optional[str] = Query(None, description="Termo avulso; sem ele, usa os termos salvos na coleção."),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    colecao = svc._buscar_colecao(db, collection_id=collection_id)
+    if colecao is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
+    settings = colecao.settings if isinstance(colecao.settings, dict) else {}
+    termos = [q] if q is not None else _termos_da_colecao(settings)
+    try:
+        return agenda.search_agenda(db, termos)
+    except agenda.AgendaError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @admin_router.get("/{collection_id}/search")
