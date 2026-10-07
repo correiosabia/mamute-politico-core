@@ -238,7 +238,10 @@ def _meses(inicio: date, fim: date):
         atual = proximo
 
 
-def save_day(session: Any, linhas: list[dict[str, Any]], *, authority_id: str, event_date: date) -> None:
+def save_day(
+    session: Any, linhas: list[dict[str, Any]], *, authority_id: str, event_date: date, source: str = SOURCE
+) -> None:
+    """Regrava o dia de uma autoridade (usado também pelo coletor do STF)."""
     from sqlalchemy import text
 
     session.execute(
@@ -246,7 +249,7 @@ def save_day(session: Any, linhas: list[dict[str, Any]], *, authority_id: str, e
             "DELETE FROM official_agenda_item "
             "WHERE source = :s AND authority_id = :a AND event_date = :d"
         ),
-        {"s": SOURCE, "a": authority_id, "d": event_date},
+        {"s": source, "a": authority_id, "d": event_date},
     )
     if linhas:
         session.execute(

@@ -47,6 +47,10 @@ FONTES = {
         "label": "e-Agendas da CGU (Executivo federal)",
         "url": "https://eagendas.cgu.gov.br/",
     },
+    "stf": {
+        "label": "Agenda da Presidência e dos ministros do STF",
+        "url": "https://portal.stf.jus.br/ministro/agendaMinistro.asp",
+    },
 }
 # Caracteres de cada lado do termo no trecho dos participantes.
 TRECHO = 90
