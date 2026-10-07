@@ -223,6 +223,12 @@ def test_grupo_de_controle(client, session, monkeypatch):
             outros.append(_gasto(200 + i, i, passagem, dia, f"Passageiro: DEP NUMERO {i}; Trecho: POA/GRU"))
     session.add_all(outros)
     session.commit()
+    # Ana, Beto e os dois de fora que também foram a SP são do mesmo partido; os outros, não.
+    for pid in (1, 2, 20, 21):
+        session.get(Parliamentarian, pid).party = "PX"
+    for pid in range(22, 28):
+        session.get(Parliamentarian, pid).party = "PY"
+    session.commit()
     cid = _colecao(
         client,
         [{"display_name": "Ana", "parliamentarian_id": 1}, {"display_name": "Beto", "parliamentarian_id": 2}],
@@ -241,6 +247,11 @@ def test_grupo_de_controle(client, session, monkeypatch):
     assert ctx["unusual"] is False
     # Dias com viagem válida na Câmara: 10/03, 11/03, 02/04; SP só em 10/03 -> mediana 0.
     assert ctx["typical_day"] == 0
+    # Só entre os do mesmo partido: os 4 do PX foram todos a SP, então não há nada de incomum.
+    partido = ctx["party"]
+    assert partido["parties"] == ["PX"]
+    assert partido["travelers"] == 4 and partido["others"] == 2
+    assert partido["p_value"] == pytest.approx(1.0) and partido["unusual"] is False
 
     # Base pequena demais (o Senado quase não marca o passageiro): sem contexto.
     monkeypatch.setattr(collection_travel, "BASE_MINIMA", 30)
