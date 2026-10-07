@@ -206,8 +206,13 @@ def collect(*, extras: list[str], zip_local: Optional[Path] = None, persist: boo
         rows = filtra(linhas_do_zip(caminho), termos)
         logger.info("=== e-Agendas: %s compromissos citam os termos ===", len(rows))
         if session is not None:
+            from mamute_scrappers.agenda_crawler.alerta import avisar_novos, foto
+
+            antes = foto(session, SOURCE)
             # O ZIP é o histórico inteiro: substituir mantém a fonte igual ao conjunto de termos atual.
             substitui(session, rows)
+            session.commit()
+            avisar_novos(session, SOURCE, antes)
         else:
             logger.info("Modo dry-run: nada foi gravado.")
     return {"termos": len(termos), "compromissos": len(rows)}

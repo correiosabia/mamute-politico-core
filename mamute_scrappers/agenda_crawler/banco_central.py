@@ -276,6 +276,9 @@ def collect(inicio: date, fim: date, *, persist: bool = True) -> dict[str, int]:
 
     dias = compromissos = 0
     with contexto as session:
+        from mamute_scrappers.agenda_crawler.alerta import avisar_novos, foto
+
+        antes = foto(session, SOURCE) if session is not None else set()
         for de, ate in _meses(inicio, fim):
             itens = fetch_range(de, ate)
             for (autoridade, dia), linhas in por_dia(itens).items():
@@ -286,6 +289,8 @@ def collect(inicio: date, fim: date, *, persist: bool = True) -> dict[str, int]:
             if session is not None:
                 session.commit()
             logger.info("Agenda BC %s a %s: %s dias de autoridade.", de, ate, len(itens))
+        if session is not None:
+            avisar_novos(session, SOURCE, antes)
     logger.info("=== Agenda BC %s a %s: %s dias, %s compromissos ===", inicio, fim, dias, compromissos)
     if not persist:
         logger.info("Modo dry-run: nada foi gravado.")
