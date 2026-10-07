@@ -193,6 +193,8 @@ def build_items(item: dict[str, Any]) -> list[dict[str, Any]]:
             "event_date": dia,
             "seq": i,
             "url": PAGE_URL,
+            "organization": "Banco Central do Brasil",
+            "participants": None,
             **c,
         }
         for i, c in enumerate(parse_dia(item.get("descricao") or ""))
@@ -250,9 +252,10 @@ def save_day(session: Any, linhas: list[dict[str, Any]], *, authority_id: str, e
         session.execute(
             text(
                 "INSERT INTO official_agenda_item (source, authority_id, authority_name, office, "
-                "office_label, event_date, seq, starts_at, ends_at, description, place, remote, url) "
+                "office_label, event_date, seq, starts_at, ends_at, description, place, remote, url, "
+                "organization, participants) "
                 "VALUES (:source, :authority_id, :authority_name, :office, :office_label, :event_date, "
-                ":seq, :starts_at, :ends_at, :description, :place, :remote, :url)"
+                ":seq, :starts_at, :ends_at, :description, :place, :remote, :url, :organization, :participants)"
             ),
             linhas,
         )

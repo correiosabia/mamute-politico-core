@@ -197,6 +197,12 @@ PYTHONPATH=/app
 # (uma vez): python -m mamute_scrappers.agenda_crawler.banco_central --desde 2019-01-01
 45 7 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-bcb -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.banco_central >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# e-Agendas da CGU (CS-135): ZIP de dados abertos com todo o Executivo federal
+# (~200 MB, atualização mensal na fonte). Grava só o que cita os termos de
+# collection.settings.agenda_terms e substitui a fonte inteira a cada coleta;
+# termo novo aparece na coleta seguinte. Semanal, domingo 08h15 UTC (~2 min).
+15 8 * * 0 cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-eagendas -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.eagendas >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # Backfill 2022 -> ano corrente (a cada 1h no minuto 20 — livre entre os jobs
 # horarios, que ocupam 10, 25, 35, 40 e 55). Sao 10 chunks ano x casa; com 2
 # por execucao a fila fecha em ~5 horas e depois vira no-op.
