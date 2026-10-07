@@ -58,14 +58,13 @@ def _norm(texto: Optional[str]) -> str:
 
 
 def _trecho(texto: str, termos: list[str]) -> Optional[str]:
-    """Pedaço dos participantes em volta do primeiro termo achado (sem CPF mascarado)."""
-    limpo = re.sub(r"\s*\(CPF:[^)]*\)", "", texto)
-    alvo = _norm(limpo)
-    for t in termos:
-        i = alvo.find(_norm(t))
-        if i >= 0:
-            ini, fim = max(0, i - TRECHO), min(len(limpo), i + len(t) + TRECHO)
-            return ("…" if ini else "") + limpo[ini:fim].strip() + ("…" if fim < len(limpo) else "")
+    """O participante (pedaço entre "|") onde o termo aparece, sem CPF mascarado."""
+    for parte in re.split(r"\|+", texto):
+        limpo = re.sub(r"\s*\(CPF:[^)]*\)", "", parte)
+        limpo = re.sub(r"^\s*Agentes (públicos|privados) participantes:\s*", "", limpo).strip()
+        alvo = _norm(limpo)
+        if any(_norm(t) in alvo for t in termos):
+            return limpo if len(limpo) <= 2 * TRECHO else limpo[: 2 * TRECHO].rstrip() + "…"
     return None
 
 

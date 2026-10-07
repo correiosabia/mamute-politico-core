@@ -148,6 +148,6 @@ def test_participantes_e_duas_fontes(session):
     assert [a["name"] for a in manha["authorities"]].count("Pessoa 1") == 1
     hab = next(i for i in r["items"] if i["date"] == "2024-03-18")
     assert hab["matched"] == ["Banco X"] and hab["organization"] == "Ministério do Exemplo"
-    assert "Sicrano representando Banco X" in hab["participants_excerpt"]
+    assert hab["participants_excerpt"] == "Sicrano representando Banco X"
     assert "CPF" not in hab["participants_excerpt"]
     assert {s["source"] for s in r["sources"]} == {"bcb", "eagendas"}
