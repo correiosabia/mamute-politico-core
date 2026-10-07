@@ -50,6 +50,7 @@ try:
     from ..db.models.roll_call_votes import RollCallVote
     from ..db.models.speeches_transcripts import SpeechesTranscript
     from ..routers.parliamentarians import _extract_photo_url_from_details
+    from .collection_amendments import linha_de_base, resumo_emendas
     from .editorial_agendas import tabelas_disponiveis
 except ImportError:  # execução dentro de api/
     from db.models.candidacy import Candidacy
@@ -74,6 +75,7 @@ except ImportError:  # execução dentro de api/
     from db.models.roll_call_votes import RollCallVote
     from db.models.speeches_transcripts import SpeechesTranscript
     from routers.parliamentarians import _extract_photo_url_from_details
+    from services.collection_amendments import linha_de_base, resumo_emendas
     from services.editorial_agendas import tabelas_disponiveis
 
 TABELAS = ("collection", "collection_member", "collection_block")
@@ -250,6 +252,8 @@ def get_collection(
     resultado["settings"] = colecao.settings if isinstance(colecao.settings, dict) else {}
     resultado["members"] = resolve_members(db, membros)
     resultado["blocks"] = resolve_blocks(db, blocos)
+    # Para comparar as emendas da lista com a mediana de todos os parlamentares.
+    resultado["amendments_baseline"] = linha_de_base(db)
     return resultado
 
 
@@ -441,6 +445,7 @@ def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[s
     cand_ids = {int(c.id) for _, c in vinculos if c is not None}
     resultados = _resultados(db, cand_ids)
     cota = _cota(db, parl_ids)
+    emendas = resumo_emendas(db, parl_ids)
     patr_parl, patr_cand = _patrimonio(db, parl_ids, cand_ids)
 
     saida = []
@@ -457,6 +462,7 @@ def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[s
                 "parliamentarian": _parlamentar_out(parl) if parl else None,
                 "candidacy": _candidatura_out(cand, resultados.get(int(cand.id))) if cand else None,
                 "expenses": cota.get(int(parl.id)) if parl else None,
+                "amendments": emendas.get(int(parl.id)) if parl else None,
                 "assets": _serie_patrimonio(
                     patr_parl.get(int(parl.id)) if parl else None,
                     patr_cand.get(int(cand.id)) if cand else None,
