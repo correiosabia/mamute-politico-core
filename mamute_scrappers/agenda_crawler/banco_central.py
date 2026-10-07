@@ -192,6 +192,24 @@ def build_items(item: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def por_dia(itens: list[dict[str, Any]]) -> dict[tuple[str, date], list[dict[str, Any]]]:
+    """Linhas agrupadas por (autoridade, dia), com `seq` contínuo.
+
+    A fonte às vezes manda dois itens para a mesma autoridade no mesmo dia (em
+    jan/2025 a agenda de 28/01 veio com a data de 27/01). Gravar item a item faria
+    o segundo apagar o primeiro; agrupado, o dia fica com os dois.
+    """
+    dias: dict[tuple[str, date], list[dict[str, Any]]] = {}
+    for item in itens:
+        if not item.get("dataEvento") or item.get("idAutoridade") is None:
+            continue
+        chave = (str(item["idAutoridade"]), date.fromisoformat(str(item["dataEvento"])[:10]))
+        linhas = dias.setdefault(chave, [])
+        for linha in build_items(item):
+            linhas.append({**linha, "seq": len(linhas)})
+    return dias
+
+
 def fetch_range(inicio: date, fim: date) -> list[dict[str, Any]]:
     params = {
         "lista": "Agenda da Diretoria",
@@ -247,18 +265,11 @@ def collect(inicio: date, fim: date, *, persist: bool = True) -> dict[str, int]:
     with contexto as session:
         for de, ate in _meses(inicio, fim):
             itens = fetch_range(de, ate)
-            for item in itens:
-                linhas = build_items(item)
-                if not item.get("dataEvento") or item.get("idAutoridade") is None:
-                    continue
+            for (autoridade, dia), linhas in por_dia(itens).items():
                 dias += 1
                 compromissos += len(linhas)
                 if session is not None:
-                    save_day(
-                        session, linhas,
-                        authority_id=str(item["idAutoridade"]),
-                        event_date=date.fromisoformat(str(item["dataEvento"])[:10]),
-                    )
+                    save_day(session, linhas, authority_id=autoridade, event_date=dia)
             if session is not None:
                 session.commit()
             logger.info("Agenda BC %s a %s: %s dias de autoridade.", de, ate, len(itens))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from mamute_scrappers.agenda_crawler.banco_central import build_items, cargo, lugar, parse_dia
+from mamute_scrappers.agenda_crawler.banco_central import build_items, cargo, lugar, parse_dia, por_dia
 
 # Formato de 2025: texto aninhado em div/p/span, horário antes do travessão.
 HTML_2025 = (
@@ -64,3 +64,17 @@ def test_build_items():
     assert {l["event_date"] for l in linhas} == {date(2025, 3, 17)}
     assert linhas[0]["authority_id"] == "54" and linhas[0]["office_label"] == "Diretor de Fiscalização"
     assert build_items({"evento": "Presi - x", "descricao": HTML_2025}) == []
+
+
+def test_por_dia_junta_itens_repetidos_da_mesma_autoridade():
+    base = {"evento": "Diorf - 27/01/25", "dataEvento": "2025-01-27T03:00:00Z", "idAutoridade": 50}
+    dias = por_dia(
+        [
+            {**base, "descricao": HTML_2023},
+            # A fonte repete a autoridade no mesmo dia (agenda do dia seguinte com a data errada).
+            {**base, "evento": "Diorf - 28/01/25", "descricao": HTML_2025},
+            {"evento": "Presi - x", "descricao": HTML_2025},
+        ]
+    )
+    assert list(dias) == [("50", date(2025, 1, 27))]
+    assert [l["seq"] for l in dias[("50", date(2025, 1, 27))]] == [0, 1, 2, 3, 4]
