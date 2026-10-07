@@ -197,6 +197,12 @@ PYTHONPATH=/app
 # (uma vez): python -m mamute_scrappers.agenda_crawler.banco_central --desde 2019-01-01
 45 7 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-bcb -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.banco_central >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# Agenda da Presidência e dos ministros do STF (CS-135): GraphQL do portal, uma
+# consulta por mês (mês passado até +30 dias), 25 s entre consultas por causa do
+# WAF. Diário às 07h55 UTC. Backfill (uma vez):
+# python -m mamute_scrappers.agenda_crawler.stf --desde 2025-01-01
+55 7 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-stf -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.stf >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # e-Agendas da CGU (CS-135): ZIP de dados abertos com todo o Executivo federal
 # (~200 MB, atualização mensal na fonte). Grava só o que cita os termos de
 # collection.settings.agenda_terms e substitui a fonte inteira a cada coleta;
