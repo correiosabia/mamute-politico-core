@@ -64,6 +64,8 @@ class MemberIn(BaseModel):
     tier: Optional[int] = Field(default=None, ge=1, le=5)
     context: Optional[str] = None
     sources: list[SourceIn] = Field(default_factory=list)
+    photo_url: Optional[str] = None
+    photo_credit: Optional[str] = None
 
 
 class MembersUpdate(BaseModel):
