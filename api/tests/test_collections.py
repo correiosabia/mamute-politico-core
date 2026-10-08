@@ -368,3 +368,37 @@ def test_salvar_sem_vinculo_no_corpo_preserva_o_vinculo(client, session):
         url, json={"members": [{"id": ana["id"], "display_name": "Ana", "cpf": None}]}
     ).json()[0]
     assert solta["parliamentarian"] is None
+
+
+def test_foto_de_quem_esta_fora_da_base(client, session):
+    """Foto pública com crédito para quem não tem foto no cadastro; salvar sem o campo não apaga."""
+    _base(session)
+    criada = _cria(client)
+    url = f"/api/admin/collections/{criada['id']}/members"
+    fulano = client.put(
+        url,
+        json={
+            "members": [
+                {
+                    "display_name": "Fulano",
+                    "role_label": "Ex-ministro",
+                    "photo_url": " https://upload.wikimedia.org/foto.jpg ",
+                    "photo_credit": "Fotógrafo/Agência, CC BY 2.0",
+                }
+            ]
+        },
+    ).json()[0]
+    assert fulano["photo_url"] == "https://upload.wikimedia.org/foto.jpg"
+    assert fulano["photo_credit"] == "Fotógrafo/Agência, CC BY 2.0"
+
+    editado = client.put(url, json={"members": [{"id": fulano["id"], "display_name": "Fulano de Tal"}]}).json()[0]
+    assert editado["photo_url"] == "https://upload.wikimedia.org/foto.jpg"
+
+    apagado = client.put(
+        url, json={"members": [{"id": fulano["id"], "display_name": "Fulano", "photo_url": None}]}
+    ).json()[0]
+    assert apagado["photo_url"] is None
+
+    http = client.put(url, json={"members": [{"display_name": "Beltrano", "photo_url": "http://exemplo/foto.jpg"}]})
+    assert http.status_code == 422
+    assert "https://" in http.json()["detail"]

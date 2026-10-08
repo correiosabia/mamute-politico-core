@@ -145,6 +145,16 @@ def _fontes(valor: Any) -> list[dict[str, Optional[str]]]:
     return fontes
 
 
+def _url_foto(valor: Any, nome: str) -> Optional[str]:
+    """Só endereço https: a página é servida em https e uma foto http seria bloqueada."""
+    url = _texto(valor)
+    if url is None:
+        return None
+    if not url.startswith("https://"):
+        raise CollectionError(f"{nome}: a foto precisa de um endereço que comece com https://.")
+    return url
+
+
 # --------------------------------------------------------------------------
 # leitura
 # --------------------------------------------------------------------------
@@ -458,6 +468,8 @@ def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[s
                 "tier": m.tier,
                 "context": m.context,
                 "sources": _fontes(m.sources),
+                "photo_url": m.photo_url,
+                "photo_credit": m.photo_credit,
                 "position": int(m.position or 0),
                 "parliamentarian": _parlamentar_out(parl) if parl else None,
                 "candidacy": _candidatura_out(cand, resultados.get(int(cand.id))) if cand else None,
@@ -692,6 +704,8 @@ def replace_members(
                 "cpf": atual.cpf,
                 "parliamentarian_id": atual.parliamentarian_id,
                 "candidacy_id": atual.candidacy_id,
+                "photo_url": atual.photo_url,
+                "photo_credit": atual.photo_credit,
                 **item,
             }
         cpf_bruto = item.get("cpf")
@@ -719,6 +733,8 @@ def replace_members(
         m.tier = tier
         m.context = (item.get("context") or "").strip() or None
         m.sources = _fontes(item.get("sources"))
+        m.photo_url = _url_foto(item.get("photo_url"), nome)
+        m.photo_credit = _texto(item.get("photo_credit"))
         m.position = posicao
 
     removidos = set(existentes) - mantidos
