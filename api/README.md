@@ -208,6 +208,27 @@ consome aplica as listas de `word_cloud_terms`, as mesmas da tela de
 configurações. `speeches_count` e `speeches_analyzed` vêm separados para a tela
 distinguir "não discursou" de "discursou e ainda não foi analisado".
 
+## Relatório por e-mail: configurações e link curto (CS-116/CS-134)
+
+- `GET`/`PUT /api/admin/settings/email` (admin): peças editáveis do e-mail
+  (`banner_image_url`, `banner_link_url`, `footer_image_url`,
+  `footer_link_url`, `instagram_url`, `subscribe_url`, `share_text`). O PUT
+  muda só os campos enviados; links precisam ser `https://` ou uma imagem
+  enviada aqui. Auditado em `admin_audit_log`.
+- `POST /api/admin/settings/email/images` (admin): `{content_type, data_base64}`,
+  PNG/JPG/GIF/WebP até 1 MB. Grava no banco (`public_image`) e devolve
+  `/api/public-images/{sha256}`, servida sem login e com cache imutável.
+- `GET /api/s/{código}` (público): tags de prévia (`og:*`, `twitter:*`) do
+  destaque gravado em `share_link` e redirecionamento para `MAMUTE_SITE_URL`.
+  Código inexistente vai direto para o site.
+- `GET /api/s/{código}.png` (público): imagem da prévia. Vem do cache
+  (`share_card_cache`) ou do serviço em `OG_RENDER_URL` (POST `/render`,
+  timeout de 10 s). Falha = redireciona para `MAMUTE_SHARE_FALLBACK_IMAGE`
+  (sem ela, 404) e não grava cache.
+
+Todas as tabelas são da migration `cs116a1b2c3d4`; antes dela, leitura devolve
+vazio em vez de erro.
+
 ## Presença no card de Estatísticas (CS-79)
 
 `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve
