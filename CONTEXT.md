@@ -43,6 +43,28 @@ A recorded vote by a parliamentarian on a proposition, stored in `roll_call_vote
 
 A speech or stenographic note associated with a parliamentarian, stored in `speeches_transcripts`.
 
+### Speech Short Summary
+
+Up to two sentences saying what a speech was about, stored in
+`speech_short_summary` and used by the e-mail report. Short official summaries
+are kept verbatim; longer ones are condensed by a model from the official
+summary itself; speeches without one are summarized from the transcript.
+
+### General Highlights
+
+What the e-mail report shows to an account with no monitored parliamentarian,
+or whose parliamentarians had no activity in the period: the latest nominal
+votes (one per proposition, with the house) and the most frequent speech
+topics. When there was no nominal vote in the period, the latest ones before
+it are shown and labeled as such.
+
+### Share Link
+
+A short public link (`/api/s/{code}`) to one highlight of the e-mail report,
+stored in `share_link`. It serves preview tags and an image for messaging apps
+and sends the person to the site. The code identifies the highlight, never who
+shared it.
+
 ### Committee
 
 A legislative committee or collegiate body stored in `committee`.

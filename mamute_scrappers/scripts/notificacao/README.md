@@ -14,7 +14,35 @@ Módulo standalone que envia relatórios HTML aos projetos cadastrados em `proje
 | Cabeçalho | Logo Mamute, saudação (primeiro nome do projeto, antes do `_`) |
 | Parlamentares monitorados | Chips só dos parlamentares que aparecem nos **destaques** do período (não lista todos os favoritos) |
 | Resumo do período | Cards: proposições, votações, discursos + intervalo de datas |
-| Destaques recentes | Atividades agrupadas por parlamentar; **ementa** da proposição quando existir; discursos com link da **tramitação** vinculada (`speeches_transcripts_proposition`) ou, se não houver, link direto do discurso |
+| Destaques recentes | Atividades agrupadas por parlamentar; **ementa** da proposição (`summary`, cortada na frase); discursos com o **resumo curto** (`speech_short_summary`) e link da **tramitação** vinculada ou do discurso; **emendas** que entraram na base no período |
+
+### Blocos que dependem de flag ou configuração (CS-116/133/134)
+
+O registro das flags mora no app (`ui/src/lib/featureFlags.ts`); o envio lê o
+estado com a mesma regra da tela (`flags.py`): `admins` = só e-mails de
+`MAMUTE_ADMIN_EMAILS`; `all` = admins + contas cujo plano tem a flag em modo
+`liberado`. Estados lidos uma vez por envio. Tudo desligado = e-mail de sempre.
+
+| Flag | O que muda |
+|------|------------|
+| `email_destaques_gerais` | Conta sem parlamentar selecionado ou sem atividade deixa de ser pulada: recebe os **destaques gerais** (`geral.py`: últimas votações nominais, uma por proposição, com a casa e o placar; até 8 temas dos discursos, com os filtros da nuvem). Sem votação na quinzena, mostra as últimas registradas e diz isso. Status `sent_general` / `sent_no_activity` |
+| `email_balanco` | Balanço de **todos** os parlamentares selecionados, inclusive quem não teve atividade ("Sem atividade registrada nesta quinzena") |
+| `email_convite_assinatura` | Botão "Assine o Mamute Completo" (link vem de `subscribe_url`) |
+| `email_design_novo` | Template novo (`render_v2.py`): fundo amarelo, cards brancos, linha **Compartilhar** em cada destaque |
+
+Peças editáveis no Admin (tabela `email_settings`, chave vazia = bloco some):
+banner do topo e rodapé de patrocínio (imagem + link), Instagram, link de
+assinatura e texto padrão do compartilhamento.
+
+**Compartilhar:** o envio grava em `share_link` um código por destaque
+(reaproveitado entre contas e envios) e o e-mail aponta para
+`{MAMUTE_APP_URL}/api/s/{código}`. A API devolve as tags de prévia e manda a
+pessoa para o site; a imagem vem do serviço configurado em `OG_RENDER_URL`.
+
+**Resumo curto dos discursos:** job `speech_short_summary` (cron 09:00 UTC).
+Sumário oficial de até 280 caracteres vai como está; maior, o modelo condensa o
+próprio sumário; sem sumário, resume o começo da transcrição. Falha do modelo
+deixa o discurso sem resumo, com o sumário cortado de antes.
 
 ---
 

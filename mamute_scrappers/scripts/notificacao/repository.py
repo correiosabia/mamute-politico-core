@@ -6,12 +6,16 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, List, Optional
 
-from sqlalchemy import Date, cast, func, select
+import weakref
+
+from sqlalchemy import Date, cast, column, func, inspect, select, table
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from mamute_scrappers.db.models import (
     AuthorsProposition,
     Parliamentarian,
+    ParliamentaryAmendment,
     Projetos,
     ProjetosParliamentarian,
     Proposition,
@@ -32,6 +36,9 @@ from .dates import format_activity_date
 from .labels import (
     chamber_label_from_parliamentarian_type,
     extract_ementa,
+    cortar_na_frase,
+    format_brl,
+    format_localidade,
     format_parliamentarian_display_name,
     format_proposition_display_title,
     is_camara_proposition,
@@ -46,6 +53,24 @@ from .models import ActivityItem, ProjectRecipient
 from .tzcompat import SAO_PAULO, combine_local, min_local, now_local
 
 _VOTE_CANDIDATE_MULTIPLIER = 20
+
+# Tabela da migration cs116. O deploy sobe o código antes do alembic: sem a
+# tabela, o discurso sai com o sumário cortado, como antes.
+_SPEECH_SHORT_SUMMARY = table("speech_short_summary", column("speech_id"), column("text"))
+_TABELAS_POR_BANCO: "weakref.WeakKeyDictionary[Any, dict[str, bool]]" = weakref.WeakKeyDictionary()
+
+
+def tem_tabela(session: Session, nome: str) -> bool:
+    """Existência da tabela, consultada uma vez por engine."""
+    bind = session.get_bind()
+    engine = getattr(bind, "engine", bind)
+    cache = _TABELAS_POR_BANCO.setdefault(engine, {})
+    if nome not in cache:
+        try:
+            cache[nome] = inspect(engine).has_table(nome)
+        except SQLAlchemyError:
+            return False
+    return cache[nome]
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +149,7 @@ def _to_recipient(project: Projetos) -> ProjectRecipient:
         email=str(project.email).strip(),
         nome=str(project.nome),
         cliente=project.cliente,
+        tier_id=int(project.tier_id) if project.tier_id is not None else None,
     )
 
 
@@ -222,6 +248,7 @@ def fetch_recent_propositions(
             Proposition.summary,
             Proposition.presentation_date,
             Proposition.created_at,
+            Proposition.id,
         )
         .select_from(AuthorsProposition)
         .join(Proposition, Proposition.id == AuthorsProposition.proposition_id)
@@ -250,6 +277,7 @@ def fetch_recent_propositions(
         prop_summary,
         presentation_date,
         created_at,
+        proposition_id,
     ) in session.execute(stmt).all():
         occurred = presentation_date
         if occurred is None and created_at is not None:
@@ -281,6 +309,8 @@ def fetch_recent_propositions(
                     camara=is_camara_proposition(link),
                 ),
                 occurred_at=occurred,
+                kind_key="proposicao",
+                item_id=int(proposition_id),
             )
         )
     return items
@@ -302,6 +332,7 @@ def _build_vote_activity_item(
     prop_details: Any,
     presentation_date: Optional[date],
     parliamentarian_name: str,
+    vote_id: Optional[int] = None,
 ) -> ActivityItem:
     vote_date = vote_occurred_at(
         prop_details=prop_details,
@@ -330,6 +361,8 @@ def _build_vote_activity_item(
             camara=is_camara_proposition(prop_link),
         ),
         occurred_at=vote_date,
+        kind_key="votacao",
+        item_id=vote_id,
     )
 
 
@@ -354,6 +387,7 @@ def _iter_vote_candidates(
             Proposition.summary,
             Proposition.details,
             Proposition.presentation_date,
+            RollCallVote.id,
         )
         .join(Proposition, Proposition.id == RollCallVote.proposition_id)
         .where(RollCallVote.parliamentarian_id == parliamentarian_id)
@@ -381,6 +415,7 @@ def _unpack_vote_row(row: tuple) -> dict[str, Any]:
         prop_summary,
         prop_details,
         presentation_date,
+        vote_id,
     ) = row
     return {
         "vote": vote,
@@ -396,6 +431,7 @@ def _unpack_vote_row(row: tuple) -> dict[str, Any]:
         "prop_summary": prop_summary,
         "prop_details": prop_details,
         "presentation_date": presentation_date,
+        "vote_id": int(vote_id) if vote_id is not None else None,
     }
 
 
@@ -454,10 +490,10 @@ def _build_speech_activity_item(
     speech_type: Optional[str],
     parliamentarian_name: str,
     proposition_by_speech: dict[int, tuple[Optional[str], Optional[int]]],
+    short_summary: Optional[str] = None,
 ) -> ActivityItem:
-    text = (summary or "").strip()
-    if len(text) > 200:
-        text = text[:197] + "..."
+    # O resumo curto já sai do job no tamanho certo; só o sumário bruto é cortado.
+    text = (short_summary or "").strip() or cortar_na_frase(summary, 200)
     if not text:
         text = speech_type or "Discurso"
 
@@ -479,6 +515,8 @@ def _build_speech_activity_item(
         parliamentarian_name=parliamentarian_name,
         link=display_link,
         occurred_at=speech_date,
+        kind_key="discurso",
+        item_id=speech_id,
     )
 
 
@@ -508,6 +546,7 @@ def fetch_recent_votes(
             Proposition.summary,
             Proposition.details,
             Proposition.presentation_date,
+            RollCallVote.id,
         )
         .join(Proposition, Proposition.id == RollCallVote.proposition_id)
         .where(RollCallVote.parliamentarian_id == parliamentarian_id)
@@ -551,9 +590,9 @@ def fetch_recent_speeches(
         .limit(limit)
     )
     rows = _dedupe_speech_rows(session.execute(stmt).all())
-    prop_links = _proposition_link_by_speech_id(
-        session, [int(row[0]) for row in rows]
-    )
+    speech_ids = [int(row[0]) for row in rows]
+    prop_links = _proposition_link_by_speech_id(session, speech_ids)
+    resumos = _short_summary_by_speech_id(session, speech_ids)
     return [
         _build_speech_activity_item(
             speech_id=int(row[0]),
@@ -564,9 +603,83 @@ def fetch_recent_speeches(
             speech_type=row[5],
             parliamentarian_name=parliamentarian_name,
             proposition_by_speech=prop_links,
+            short_summary=resumos.get(int(row[0])),
         )
         for row in rows
     ]
+
+
+def _short_summary_by_speech_id(session: Session, speech_ids: List[int]) -> dict[int, str]:
+    if not speech_ids or not tem_tabela(session, "speech_short_summary"):
+        return {}
+    stmt = select(_SPEECH_SHORT_SUMMARY.c.speech_id, _SPEECH_SHORT_SUMMARY.c.text).where(
+        _SPEECH_SHORT_SUMMARY.c.speech_id.in_(speech_ids)
+    )
+    return {int(sid): texto for sid, texto in session.execute(stmt).all() if texto}
+
+
+def _tipo_da_emenda(amendment_type: Optional[str]) -> str:
+    """'Emenda Individual - Transferências...' -> 'Emenda individual'."""
+    base = (amendment_type or "Emenda").split(" - ")[0].strip() or "Emenda"
+    return base[:1].upper() + base[1:].lower()
+
+
+def fetch_new_amendments(
+    session: Session,
+    parliamentarian_id: int,
+    parliamentarian_name: str,
+    range_start_dt: datetime,
+    range_end_dt_exclusive: datetime,
+    limit: int,
+) -> List[ActivityItem]:
+    """Emendas que apareceram na base no período (a tabela não tem data de indicação)."""
+    stmt = (
+        select(
+            ParliamentaryAmendment.id,
+            ParliamentaryAmendment.amendment_type,
+            ParliamentaryAmendment.spending_locality,
+            ParliamentaryAmendment.function,
+            ParliamentaryAmendment.committed_value,
+            ParliamentaryAmendment.created_at,
+        )
+        .where(ParliamentaryAmendment.parliamentarian_id == parliamentarian_id)
+        .where(ParliamentaryAmendment.created_at >= range_start_dt)
+        .where(ParliamentaryAmendment.created_at < range_end_dt_exclusive)
+        .order_by(
+            ParliamentaryAmendment.committed_value.desc().nulls_last(),
+            ParliamentaryAmendment.id.desc(),
+        )
+        .limit(limit)
+    )
+    items: List[ActivityItem] = []
+    for amendment_id, tipo, local, funcao, valor, created_at in session.execute(stmt).all():
+        titulo = _tipo_da_emenda(tipo)
+        if valor:
+            titulo = f"{titulo} de {format_brl(valor)}"
+        destino = " · ".join(
+            parte
+            for parte in (
+                format_localidade(local),
+                (funcao or "").strip(),
+            )
+            if parte
+        )
+        criada = created_at.date() if isinstance(created_at, datetime) else created_at
+        items.append(
+            ActivityItem(
+                kind="emenda",
+                title=titulo,
+                subtitle=(
+                    f"Registrada no Mamute em {criada.strftime('%d/%m/%Y')}" if criada else ""
+                ),
+                parliamentarian_name=parliamentarian_name,
+                ementa=f"Para {destino}" if destino else None,
+                occurred_at=criada,
+                kind_key="emenda",
+                item_id=int(amendment_id),
+            )
+        )
+    return items
 
 
 def _fetch_propositions_all_time(
@@ -679,9 +792,9 @@ def _fetch_speeches_all_time(
         .limit(limit)
     )
     rows = _dedupe_speech_rows(session.execute(stmt).all())
-    prop_links = _proposition_link_by_speech_id(
-        session, [int(row[0]) for row in rows]
-    )
+    speech_ids = [int(row[0]) for row in rows]
+    prop_links = _proposition_link_by_speech_id(session, speech_ids)
+    resumos = _short_summary_by_speech_id(session, speech_ids)
     return [
         _build_speech_activity_item(
             speech_id=int(row[0]),
@@ -692,6 +805,7 @@ def _fetch_speeches_all_time(
             speech_type=row[5],
             parliamentarian_name=parliamentarian_name,
             proposition_by_speech=prop_links,
+            short_summary=resumos.get(int(row[0])),
         )
         for row in rows
     ]
@@ -762,6 +876,16 @@ def _collect_for_parliamentarian(
                 parliamentarian_name,
                 range_start,
                 range_end,
+                per_kind,
+            )
+        )
+        chunk.extend(
+            fetch_new_amendments(
+                session,
+                parliamentarian_id,
+                parliamentarian_name,
+                range_start_dt,
+                range_end_dt_exclusive,
                 per_kind,
             )
         )

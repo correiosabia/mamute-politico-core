@@ -15,6 +15,7 @@ class ProjectRecipient:
     email: str
     nome: str
     cliente: Optional[str] = None
+    tier_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class DashboardStats:
     propositions_count: int = 0
     votes_count: int = 0
     speeches_count: int = 0
+    amendments_count: int = 0
     attendance_avg_percent: Optional[int] = None
 
 
@@ -43,6 +45,35 @@ class ActivityItem:
     ementa: Optional[str] = None
     link: Optional[str] = None
     occurred_at: Optional[date | datetime] = None
+    # Para o link curto do compartilhamento: proposicao|votacao|discurso|emenda + id.
+    kind_key: str = ""
+    item_id: Optional[int] = None
+    # Código do link curto (share_link), preenchido no envio do design novo.
+    share_code: Optional[str] = None
+
+
+@dataclass
+class GeneralHighlights:
+    """Destaques gerais do Congresso na quinzena (ver geral.py)."""
+
+    votacoes: list[ActivityItem] = field(default_factory=list)
+    temas: list[str] = field(default_factory=list)
+    # Sem votação nominal na quinzena (recesso, período eleitoral): as votações
+    # são as últimas registradas antes dela, e o e-mail diz isso.
+    votacoes_anteriores: bool = False
+
+    @property
+    def vazio(self) -> bool:
+        return not self.votacoes and not self.temas
+
+
+@dataclass
+class ParliamentarianBalance:
+    """Linha do balanço do plano pago: um parlamentar selecionado no período."""
+
+    favorite: FavoriteParliamentarian
+    stats: DashboardStats
+    destaque: Optional[ActivityItem] = None
 
 
 @dataclass
@@ -56,3 +87,15 @@ class ProjectReport:
     highlights: list[ActivityItem] = field(default_factory=list)
     range_start: Optional[date] = None
     range_end: Optional[date] = None
+    # Flags do e-mail (CS-116/133/134); tudo desligado = relatório de sempre.
+    balanco: list[ParliamentarianBalance] = field(default_factory=list)
+    geral: Optional[GeneralHighlights] = None
+    motivo_geral: Optional[str] = None  # sem_selecao | sem_atividade
+    mostrar_convite: bool = False
+    design_novo: bool = False
+
+    @property
+    def tem_atividade(self) -> bool:
+        s = self.stats
+        total = s.propositions_count + s.votes_count + s.speeches_count + s.amendments_count
+        return total > 0 or bool(self.highlights)

@@ -137,3 +137,22 @@ def test_metrics_emails_without_log_table() -> None:
     assert data["kpis"]["enviados"] == 0
     # próximos envios continuam disponíveis mesmo sem a migration do log
     assert len(data["proximos"]) == 4
+
+
+def test_destaques_gerais_contam_como_enviados(session: Session) -> None:
+    """Com a flag email_destaques_gerais, quem era pulado passa a receber (CS-133)."""
+    from sqlalchemy import text
+
+    session.execute(
+        text(
+            "insert into email_send_log (projeto_id, email, periodicidade, status, created_at) values "
+            "(2,'bruno@x.com','fortnight','sent_general','2026-07-16 11:00:07'),"
+            "(1,'ana@x.com','fortnight','sent_no_activity','2026-07-16 11:00:08')"
+        )
+    )
+    session.commit()
+
+    kpis = metrics_emails(session, now=NOW)["kpis"]
+
+    assert kpis["enviados"] == 3
+    assert kpis["pulados"] == 1
