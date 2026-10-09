@@ -120,8 +120,12 @@ def extract_ementa(
     *,
     max_length: int = 280,
 ) -> Optional[str]:
-    """Ementa/resumo da proposição (mesma prioridade da UI), cortada na frase."""
-    text = (proposition_description or summary or "").strip()
+    """Ementa da proposição, cortada na frase.
+
+    `summary` é a ementa nas duas Casas; na Câmara `proposition_description`
+    traz só o nome do tipo ("Projeto de Lei"), então fica de reserva (CS-123).
+    """
+    text = (summary or proposition_description or "").strip()
     if not text:
         return None
     return cortar_na_frase(text, max_length)

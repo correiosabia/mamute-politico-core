@@ -229,3 +229,17 @@ class TestCodigoDoLinkCurto:
             codigos.add(share.share_code_for(s, item, chamber=""))
 
         assert len(codigos) == n
+
+
+@pytest.mark.parametrize("design_novo", [False, True])
+def test_quinzena_sem_votacao_avisa_que_sao_as_ultimas(design_novo: bool) -> None:
+    report = relatorio()
+    report.highlights = []
+    report.design_novo = design_novo
+    report.motivo_geral = "sem_atividade"
+    report.geral = GeneralHighlights(votacoes=GERAL.votacoes, votacoes_anteriores=True)
+
+    html = _render(report)
+
+    assert "Não houve votação nominal no plenário nesta quinzena" in html
+    assert "Últimas votações no plenário" in html

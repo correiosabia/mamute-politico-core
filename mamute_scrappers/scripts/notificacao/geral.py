@@ -33,10 +33,21 @@ from .models import ActivityItem, GeneralHighlights
 
 MAX_VOTACOES = 5
 MAX_TEMAS = 8
+# Abaixo disso a quinzena não tem discurso analisado o bastante para falar em tema.
+MIN_TEMAS = 3
 TAMANHO_MINIMO_TEMA = 3
 
 
-def _votacoes(session: Session, inicio: date, fim: date) -> list[ActivityItem]:
+def _subtitulo(link: str | None, dia: date, sim: int, nao: int) -> str:
+    """A mesma proposição pode ter votação na Câmara e no Senado: a casa diferencia."""
+    casa = "Câmara" if is_camara_proposition(link) else "Senado"
+    texto = f"{casa} · votação em {dia.strftime('%d/%m/%Y')}"
+    if sim or nao:
+        texto += f" · Sim {sim} × Não {nao}"
+    return texto
+
+
+def _votacoes(session: Session, inicio: date | None, fim: date) -> list[ActivityItem]:
     ultima = func.max(RollCallVote.vote_date)
     sim = func.sum(case((RollCallVote.vote == "Sim", 1), else_=0))
     nao = func.sum(case((RollCallVote.vote == "Não", 1), else_=0))
@@ -56,7 +67,8 @@ def _votacoes(session: Session, inicio: date, fim: date) -> list[ActivityItem]:
             nao,
         )
         .join(Proposition, Proposition.id == RollCallVote.proposition_id)
-        .where(RollCallVote.vote_date >= inicio, RollCallVote.vote_date <= fim)
+        .where(RollCallVote.vote_date <= fim)
+        .where(RollCallVote.vote_date >= inicio if inicio else RollCallVote.vote_date.is_not(None))
         .group_by(
             Proposition.id,
             Proposition.title,
@@ -80,7 +92,7 @@ def _votacoes(session: Session, inicio: date, fim: date) -> list[ActivityItem]:
                 title=format_proposition_display_title(
                     title=title, link=link, acronym=sigla, number=numero, year=ano
                 ),
-                subtitle=f"Votação em {dia.strftime('%d/%m/%Y')} · Sim {int(n_sim or 0)} × Não {int(n_nao or 0)}",
+                subtitle=_subtitulo(link, dia, int(n_sim or 0), int(n_nao or 0)),
                 parliamentarian_name="",
                 ementa=extract_ementa(descricao, resumo),
                 link=resolve_proposition_link(link, code, camara=is_camara_proposition(link)),
@@ -122,8 +134,16 @@ def _temas(session: Session, inicio: date, fim: date) -> list[str]:
         if len(limpo) < TAMANHO_MINIMO_TEMA or limpo in excluidos:
             continue
         soma[limpo] += int(frequency or 0)
-    return [t for t, _ in sorted(soma.items(), key=lambda kv: (-kv[1], kv[0]))[:MAX_TEMAS]]
+    temas = [t for t, _ in sorted(soma.items(), key=lambda kv: (-kv[1], kv[0]))[:MAX_TEMAS]]
+    return temas if len(temas) >= MIN_TEMAS else []
 
 
 def build_general_highlights(session: Session, inicio: date, fim: date) -> GeneralHighlights:
-    return GeneralHighlights(votacoes=_votacoes(session, inicio, fim), temas=_temas(session, inicio, fim))
+    votacoes = _votacoes(session, inicio, fim)
+    anteriores = False
+    if not votacoes:
+        votacoes = _votacoes(session, None, inicio)
+        anteriores = bool(votacoes)
+    return GeneralHighlights(
+        votacoes=votacoes, temas=_temas(session, inicio, fim), votacoes_anteriores=anteriores
+    )

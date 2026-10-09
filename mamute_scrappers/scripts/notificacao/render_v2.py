@@ -19,11 +19,13 @@ from .models import ActivityItem, DashboardStats, ProjectReport
 from .report_builder import (
     _PERIOD_LABELS,
     AVISO_SEM_ATIVIDADE,
+    AVISO_SEM_VOTACAO,
     SEM_ATIVIDADE_PARLAMENTAR,
     _contagens_texto,
     _format_date_range_label,
     _greeting_name,
     balanco_tem_atividade,
+    titulo_votacoes,
     url_absoluta,
 )
 from .share import share_links
@@ -191,7 +193,9 @@ def _geral(report: ProjectReport, brand: EmailBranding, share_text: str) -> str:
         partes.append(_linha(_card(f'<div style="font-size:15px;color:{TEXTO};">{_e(AVISO_SEM_ATIVIDADE)}</div>')))
     geral = report.geral
     if geral and geral.votacoes:
-        partes.append(_titulo_secao("Votações no plenário"))
+        partes.append(_titulo_secao(titulo_votacoes(geral)))
+        if geral.votacoes_anteriores:
+            partes.append(_linha(f'<div style="font-size:14px;color:{MARINHO};">{_e(AVISO_SEM_VOTACAO)}</div>', espaco=10))
         partes.extend(_item(item, brand, share_text) for item in geral.votacoes)
     if geral and geral.temas:
         chips = "".join(

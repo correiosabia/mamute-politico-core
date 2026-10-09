@@ -535,6 +535,13 @@ AVISO_SEM_ATIVIDADE = (
     "Veja o que movimentou o Congresso no período."
 )
 SEM_ATIVIDADE_PARLAMENTAR = "Sem atividade registrada nesta quinzena."
+AVISO_SEM_VOTACAO = (
+    "Não houve votação nominal no plenário nesta quinzena. Estas foram as últimas registradas."
+)
+
+
+def titulo_votacoes(geral: GeneralHighlights) -> str:
+    return "Últimas votações no plenário" if geral.votacoes_anteriores else "Votações no plenário"
 
 
 def _render_imagem_linha(brand: EmailBranding, imagem: str, link: str, alt: str) -> str:
@@ -606,7 +613,11 @@ def _render_geral_v1(report: ProjectReport) -> str:
         partes.append(f'<p style="margin:0 0 12px;">{html.escape(AVISO_SEM_ATIVIDADE)}</p>')
     geral = report.geral
     if geral and geral.votacoes:
-        partes.append('<h3 style="margin:12px 0 6px;font-size:16px;color:#111;">Votações no plenário</h3>')
+        partes.append(
+            f'<h3 style="margin:12px 0 6px;font-size:16px;color:#111;">{titulo_votacoes(geral)}</h3>'
+        )
+        if geral.votacoes_anteriores:
+            partes.append(f'<p style="margin:0 0 8px;color:#6b7280;">{html.escape(AVISO_SEM_VOTACAO)}</p>')
         partes.extend(_render_one_highlight(item, link_color="#1b76ff") for item in geral.votacoes)
     if geral and geral.temas:
         temas = ", ".join(html.escape(t) for t in geral.temas)

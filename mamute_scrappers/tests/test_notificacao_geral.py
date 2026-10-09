@@ -90,7 +90,7 @@ class TestVotacoes:
         out = geral.build_general_highlights(s, INICIO, FIM)
 
         assert [v.item_id for v in out.votacoes] == [2, 1]
-        assert out.votacoes[1].subtitle == "Votação em 01/10/2026 · Sim 3 × Não 1"
+        assert out.votacoes[1].subtitle == "Câmara · votação em 01/10/2026 · Sim 3 × Não 1"
         assert out.votacoes[1].ementa == "Ementa da 1."
         assert out.votacoes[1].kind_key == "proposicao"
 
@@ -115,29 +115,32 @@ class TestTemas:
         _tema(s, 2, "2026-10-02", "Saúde", freq=2)
         _tema(s, 3, "2026-10-02", "educação", freq=4)
         _tema(s, 4, "2026-10-02", "segurança", freq=9, primario=False)
+        _tema(s, 6, "2026-10-02", "transporte", freq=1)
         _tema(s, 5, "2026-08-02", "antigo", freq=50)
         s.commit()
 
-        assert geral.build_general_highlights(s, INICIO, FIM).temas == ["saúde", "educação"]
+        assert geral.build_general_highlights(s, INICIO, FIM).temas == ["saúde", "educação", "transporte"]
 
     def test_respeita_termos_irrelevantes_e_stopwords_da_nuvem(self) -> None:
         s = _session()
         _tema(s, 1, "2026-10-01", "presidente", freq=10)
         _tema(s, 2, "2026-10-01", "projeto de lei", freq=8)
         _tema(s, 3, "2026-10-01", "reforma tributária", freq=1)
+        _tema(s, 4, "2026-10-01", "água", freq=1)
         s.execute(text("insert into word_cloud_terms values ('presidente', 'excluded')"))
         s.execute(text("insert into word_cloud_terms values ('projeto', 'stopword')"))
         s.execute(text("insert into word_cloud_terms values ('de', 'stopword')"))
         s.commit()
 
-        assert geral.build_general_highlights(s, INICIO, FIM).temas == ["lei", "reforma tributária"]
+        assert geral.build_general_highlights(s, INICIO, FIM).temas == ["lei", "reforma tributária", "água"]
 
     def test_sem_tabela_da_nuvem_nao_filtra_e_nao_quebra(self) -> None:
         s = _session(com_nuvem=False)
-        _tema(s, 1, "2026-10-01", "saúde")
+        for i, termo in enumerate(["saúde", "educação", "presidente"]):
+            _tema(s, i, "2026-10-01", termo, freq=3 - i)
         s.commit()
 
-        assert geral.build_general_highlights(s, INICIO, FIM).temas == ["saúde"]
+        assert geral.build_general_highlights(s, INICIO, FIM).temas == ["saúde", "educação", "presidente"]
 
     def test_no_maximo_oito(self) -> None:
         s = _session()
@@ -152,3 +155,54 @@ def test_quinzena_sem_nada_fica_vazia() -> None:
     out = geral.build_general_highlights(_session(), INICIO, FIM)
 
     assert out.vazio
+
+
+class TestQuinzenaSemVotacao:
+    def test_mostra_as_ultimas_votacoes_e_marca_que_sao_de_antes(self) -> None:
+        """Recesso ou período eleitoral: sem votação na quinzena, as últimas registradas."""
+        s = _session()
+        _proposicao(s, 1, numero=1)
+        _votos(s, 1, "2026-09-03", sim=2, nao=0)
+        _proposicao(s, 2, numero=2)
+        _votos(s, 2, "2026-11-01", sim=1, nao=0)  # depois da janela: não entra
+        s.commit()
+
+        out = geral.build_general_highlights(s, INICIO, FIM)
+
+        assert [v.item_id for v in out.votacoes] == [1]
+        assert out.votacoes_anteriores is True
+
+    def test_com_votacao_na_quinzena_nao_marca(self) -> None:
+        s = _session()
+        _proposicao(s, 1)
+        _votos(s, 1, "2026-10-01", sim=1, nao=0)
+        s.commit()
+
+        assert geral.build_general_highlights(s, INICIO, FIM).votacoes_anteriores is False
+
+
+def test_sem_sim_nem_nao_nao_mostra_placar_zerado() -> None:
+    """Senado registra voto secreto como 'Votou': placar 0 × 0 pareceria erro."""
+    s = _session()
+    s.execute(
+        text(
+            "insert into proposition (id, title, link, proposition_acronym, proposition_number,"
+            " presentation_year) values (1, 'PDL 995/2026', 'https://www25.senado.leg.br/p/1', 'PDL', 995, 2026)"
+        )
+    )
+    s.execute(text("insert into roll_call_votes (proposition_id, vote, vote_date) values (1, 'Votou', '2026-10-01')"))
+    s.commit()
+
+    [v] = geral.build_general_highlights(s, INICIO, FIM).votacoes
+
+    assert v.subtitle == "Senado · votação em 01/10/2026"
+
+
+def test_menos_de_tres_temas_nao_vira_secao() -> None:
+    """Um tema solto ('formar') é ruído de quinzena vazia, não assunto."""
+    s = _session()
+    _tema(s, 1, "2026-10-01", "formar")
+    _tema(s, 2, "2026-10-01", "saúde")
+    s.commit()
+
+    assert geral.build_general_highlights(s, INICIO, FIM).temas == []

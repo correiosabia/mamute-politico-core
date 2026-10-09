@@ -58,6 +58,9 @@ class GeneralHighlights:
 
     votacoes: list[ActivityItem] = field(default_factory=list)
     temas: list[str] = field(default_factory=list)
+    # Sem votação nominal na quinzena (recesso, período eleitoral): as votações
+    # são as últimas registradas antes dela, e o e-mail diz isso.
+    votacoes_anteriores: bool = False
 
     @property
     def vazio(self) -> bool:

@@ -159,3 +159,8 @@ class TestTextos:
 
     def test_ementa_curta_fica_inteira(self) -> None:
         assert labels.extract_ementa(None, "Institui o dia do mamute.") == "Institui o dia do mamute."
+
+
+def test_ementa_vem_do_summary_e_nao_do_nome_do_tipo() -> None:
+    """Na Câmara `proposition_description` é "Projeto de Lei"; a ementa está em `summary` (CS-123)."""
+    assert labels.extract_ementa("Projeto de Lei", "Dispõe sobre cargos.") == "Dispõe sobre cargos."
