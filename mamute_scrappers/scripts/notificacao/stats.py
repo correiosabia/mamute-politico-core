@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 
 from sqlalchemy import func, select
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from mamute_scrappers.db.models import (
     AuthorsProposition,
     CommitteeAttendance,
+    ParliamentaryAmendment,
     PlenaryAttendance,
     Proposition,
     RollCallVote,
@@ -85,10 +86,30 @@ def compute_dashboard_stats(
         propositions_count=int(session.execute(propositions_stmt).scalar_one() or 0),
         votes_count=int(session.execute(votes_stmt).scalar_one() or 0),
         speeches_count=int(session.execute(speeches_stmt).scalar_one() or 0),
+        amendments_count=count_new_amendments(
+            session, parliamentarian_ids, range_start_dt, range_end_dt_exclusive
+        ),
         attendance_avg_percent=_attendance_avg_percent(
             session, parliamentarian_ids, range_start, range_end
         ),
     )
+
+
+def count_new_amendments(
+    session: Session,
+    parliamentarian_ids: List[int],
+    range_start_dt: datetime,
+    range_end_dt_exclusive: datetime,
+) -> int:
+    """Emendas que apareceram na base no período (sem data de indicação na fonte)."""
+    if not parliamentarian_ids:
+        return 0
+    stmt = select(func.count(ParliamentaryAmendment.id)).where(
+        ParliamentaryAmendment.parliamentarian_id.in_(parliamentarian_ids),
+        ParliamentaryAmendment.created_at >= range_start_dt,
+        ParliamentaryAmendment.created_at < range_end_dt_exclusive,
+    )
+    return int(session.execute(stmt).scalar_one() or 0)
 
 
 def compute_dashboard_stats_all_time(

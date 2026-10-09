@@ -133,6 +133,10 @@ PYTHONPATH=/app
 # Só entrega de fato quando: (a) MAIL_PROVIDER + credenciais no .env (Mailgun entrega
 # a usuários reais, sem o sandbox que o SES exigia) e (b) o tier tiver periodicidade_email.
 # Horários em UTC (container TZ=UTC): 11:00 UTC = 08:00 BRT.
+# Resumo curto dos discursos para o relatório por e-mail: diário, 09:00 UTC
+# (06:00 BRT), antes dos envios das 11:00 UTC. Só paga IA pelo que é novo.
+0 9 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh speech-short-summary -- /usr/local/bin/python -m mamute_scrappers.scripts.speech_short_summary >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # NÃO agendar `total` (é modo de teste/preview, manda para todos os projetos).
 
 # Relatório diário — todo dia, 11:00 UTC (08:00 BRT)
