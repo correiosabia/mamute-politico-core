@@ -161,3 +161,33 @@ class TestChamadaAoRender:
         monkeypatch.setattr(share_cards.requests, "post", lambda *a, **k: _Resp())
 
         assert share_cards._render({"title": "x"}) is None
+
+
+def test_nao_segura_transacao_enquanto_espera_o_render(client, session, monkeypatch) -> None:
+    """Revisão I4: render travado não pode prender conexão do pool por 10 s."""
+    estado = {}
+
+    def _render(dados):
+        estado["em_transacao"] = session.in_transaction()
+        return None
+
+    monkeypatch.setattr(share_cards, "_render", _render)
+
+    client.get(f"/api/s/{CODE}.png")
+
+    assert estado["em_transacao"] is False
+
+
+def test_timeout_de_conexao_e_leitura_somam_dez_segundos(monkeypatch) -> None:
+    monkeypatch.setenv("OG_RENDER_URL", "http://og-render:8000")
+    chamadas = {}
+
+    def _post(url, json, timeout):
+        chamadas["timeout"] = timeout
+        raise share_cards.requests.Timeout()
+
+    monkeypatch.setattr(share_cards.requests, "post", _post)
+
+    share_cards._render({"title": "x"})
+
+    assert sum(chamadas["timeout"]) <= 10

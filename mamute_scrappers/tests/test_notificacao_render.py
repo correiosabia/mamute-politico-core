@@ -243,3 +243,15 @@ def test_quinzena_sem_votacao_avisa_que_sao_as_ultimas(design_novo: bool) -> Non
 
     assert "Não houve votação nominal no plenário nesta quinzena" in html
     assert "Últimas votações no plenário" in html
+
+
+def test_rotas_da_api_usam_a_origem_mesmo_com_app_url_terminando_em_app() -> None:
+    """Revisão C1: /app* vai para a SPA no Caddy; a API mora em /api na raiz."""
+    from mamute_scrappers.scripts.notificacao.report_builder import url_absoluta
+
+    links = share.share_links("https://mamutepolitico.com.br/app/", "Abc123XyZ0", "")
+
+    assert links["url"] == "https://mamutepolitico.com.br/api/s/Abc123XyZ0"
+    assert url_absoluta("https://mamutepolitico.com.br/app", "/api/public-images/a") == (
+        "https://mamutepolitico.com.br/api/public-images/a"
+    )

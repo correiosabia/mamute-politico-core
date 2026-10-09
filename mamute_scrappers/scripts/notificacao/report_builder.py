@@ -93,11 +93,16 @@ class EnvioContexto:
         return self.flags.ativa(key, recipient, self.admins)
 
 
+# As flags do e-mail são do relatório quinzenal: o texto fala em "quinzena" e
+# o diário com destaques gerais viraria um e-mail igual por dia.
+PERIODICIDADE_DAS_FLAGS = "fortnight"
+
+
 def _aplicar_flags(
-    report: ProjectReport, contexto: EnvioContexto, recipient: ProjectRecipient
+    report: ProjectReport, contexto: EnvioContexto, recipient: ProjectRecipient, quinzenal: bool
 ) -> ProjectReport:
-    report.mostrar_convite = contexto.ativa(FLAG_CONVITE, recipient)
-    report.design_novo = contexto.ativa(FLAG_DESIGN_NOVO, recipient)
+    report.mostrar_convite = quinzenal and contexto.ativa(FLAG_CONVITE, recipient)
+    report.design_novo = quinzenal and contexto.ativa(FLAG_DESIGN_NOVO, recipient)
     return report
 
 
@@ -139,8 +144,13 @@ def build_project_report(
     destaques gerais esteja ligada para a conta.
     """
     contexto = contexto or EnvioContexto()
-    gerais = periodicidade != PERIODICIDADE_TESTE and contexto.ativa(
-        FLAG_DESTAQUES_GERAIS, recipient
+    quinzenal = periodicidade == PERIODICIDADE_DAS_FLAGS
+    # Sem conteúdo geral (falhou ou a quinzena veio vazia) volta a pular.
+    gerais = (
+        quinzenal
+        and contexto.geral is not None
+        and not contexto.geral.vazio
+        and contexto.ativa(FLAG_DESTAQUES_GERAIS, recipient)
     )
     favorites = list_favorite_parliamentarians(session, recipient.id)
     if not favorites:
@@ -152,9 +162,9 @@ def build_project_report(
             range_start=range_start,
             range_end=range_end,
             motivo_geral="sem_selecao",
-            geral=contexto.geral or GeneralHighlights(),
+            geral=contexto.geral,
         )
-        return _aplicar_flags(report, contexto, recipient)
+        return _aplicar_flags(report, contexto, recipient, quinzenal)
 
     parliamentarian_ids = [fav.id for fav in favorites]
 
@@ -211,8 +221,8 @@ def build_project_report(
     )
     if gerais and not report.tem_atividade:
         report.motivo_geral = "sem_atividade"
-        report.geral = contexto.geral or GeneralHighlights()
-    if periodicidade != PERIODICIDADE_TESTE and contexto.ativa(FLAG_BALANCO, recipient):
+        report.geral = contexto.geral
+    if quinzenal and contexto.ativa(FLAG_BALANCO, recipient):
         report.balanco = _balanco(
             session,
             favorites,
@@ -223,12 +233,14 @@ def build_project_report(
             range_end_dt_exclusive=range_end_dt,
             include_ingested_propositions=include_ingested,
         )
-    return _aplicar_flags(report, contexto, recipient)
+    return _aplicar_flags(report, contexto, recipient, quinzenal)
 
 
 def url_absoluta(app_url: str, valor: str) -> str:
     """Imagem enviada pelo Admin vem como caminho; cliente de e-mail precisa da URL inteira."""
-    return f"{app_url.rstrip('/')}{valor}" if valor.startswith("/") else valor
+    from .share import origem
+
+    return f"{origem(app_url)}{valor}" if valor.startswith("/") else valor
 
 
 def render_report_html(

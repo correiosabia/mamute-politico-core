@@ -26,7 +26,8 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 CODE_RE = re.compile(r"^[A-Za-z0-9]{10}$")
-RENDER_TIMEOUT_S = 10
+# (conexão, leitura): somados ficam nos 10 s que a prévia pode esperar.
+RENDER_TIMEOUT_S = (2, 8)
 
 
 def site_url() -> str:
@@ -101,6 +102,9 @@ def png_for(db: Session, code: str, dados: dict[str, Any]) -> Optional[bytes]:
     png = cached_png(db, code)
     if png is not None:
         return png
+    # Solta a conexão antes de esperar o render: um render travado não pode
+    # prender o pool da API (a transação só tinha leituras).
+    db.rollback()
     png = _render(
         {
             "kind": dados.get("kind"),

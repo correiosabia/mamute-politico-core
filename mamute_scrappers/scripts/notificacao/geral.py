@@ -15,7 +15,7 @@ Calculado uma vez por envio e reaproveitado para todas as contas.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import case, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -35,6 +35,8 @@ MAX_VOTACOES = 5
 MAX_TEMAS = 8
 # Abaixo disso a quinzena não tem discurso analisado o bastante para falar em tema.
 MIN_TEMAS = 3
+# Recesso ou período eleitoral: até onde buscar as últimas votações.
+JANELA_ULTIMAS_VOTACOES_DIAS = 120
 TAMANHO_MINIMO_TEMA = 3
 
 
@@ -142,7 +144,7 @@ def build_general_highlights(session: Session, inicio: date, fim: date) -> Gener
     votacoes = _votacoes(session, inicio, fim)
     anteriores = False
     if not votacoes:
-        votacoes = _votacoes(session, None, inicio)
+        votacoes = _votacoes(session, inicio - timedelta(days=JANELA_ULTIMAS_VOTACOES_DIAS), inicio)
         anteriores = bool(votacoes)
     return GeneralHighlights(
         votacoes=votacoes, temas=_temas(session, inicio, fim), votacoes_anteriores=anteriores

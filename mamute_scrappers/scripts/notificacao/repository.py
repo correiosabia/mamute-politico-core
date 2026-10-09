@@ -36,6 +36,7 @@ from .dates import format_activity_date
 from .labels import (
     chamber_label_from_parliamentarian_type,
     extract_ementa,
+    cortar_na_frase,
     format_brl,
     format_localidade,
     format_parliamentarian_display_name,
@@ -491,9 +492,8 @@ def _build_speech_activity_item(
     proposition_by_speech: dict[int, tuple[Optional[str], Optional[int]]],
     short_summary: Optional[str] = None,
 ) -> ActivityItem:
-    text = (short_summary or "").strip() or (summary or "").strip()
-    if len(text) > 200:
-        text = text[:197] + "..."
+    # O resumo curto já sai do job no tamanho certo; só o sumário bruto é cortado.
+    text = (short_summary or "").strip() or cortar_na_frase(summary, 200)
     if not text:
         text = speech_type or "Discurso"
 

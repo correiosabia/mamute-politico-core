@@ -93,7 +93,19 @@ class TestDiscursos:
 
         [item] = _discursos(s)
 
-        assert item.title == "x" * 197 + "..."
+        assert item.title.endswith("…") and len(item.title) <= 200
+
+    def test_resumo_curto_vai_inteiro(self) -> None:
+        """Revisão I3: o resumo curto já tem o tamanho certo; cortar de novo mutila."""
+        s = _session()
+        _discurso(s, 1, "Sumário.")
+        resumo = "Frase um sobre a ponte. " * 10  # 240 caracteres
+        s.execute(text("insert into speech_short_summary (speech_id, text, source) values (1, :t, 'oficial')"), {"t": resumo.strip()})
+        s.commit()
+
+        [item] = _discursos(s)
+
+        assert item.title == resumo.strip()
 
     def test_tabela_ainda_nao_migrada_nao_quebra(self) -> None:
         s = _session(com_resumo=False)

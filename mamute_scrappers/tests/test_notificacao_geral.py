@@ -206,3 +206,15 @@ def test_menos_de_tres_temas_nao_vira_secao() -> None:
     s.commit()
 
     assert geral.build_general_highlights(s, INICIO, FIM).temas == []
+
+
+def test_ultimas_votacoes_tem_limite_de_tempo() -> None:
+    """Revisão I1: sem limite, a reserva varria a tabela inteira de votos."""
+    s = _session()
+    _proposicao(s, 1)
+    _votos(s, 1, "2026-03-01", sim=1, nao=0)  # mais de 120 dias antes da janela
+    s.commit()
+
+    out = geral.build_general_highlights(s, INICIO, FIM)
+
+    assert out.votacoes == []

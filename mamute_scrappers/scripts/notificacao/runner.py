@@ -190,7 +190,11 @@ def carregar_contexto(periodicidade: str) -> EnvioContexto:
         dias = PERIOD_DAYS.get(periodicidade)
         if dias and snapshot.estados.get(FLAG_DESTAQUES_GERAIS, "off") != "off":
             inicio, fim, _, _ = date_range_for_period(dias)
-            geral = build_general_highlights(session, inicio, fim)
+            try:
+                geral = build_general_highlights(session, inicio, fim)
+            except Exception:  # noqa: BLE001 (sem destaques gerais o envio segue como antes)
+                logger.exception("Destaques gerais indisponíveis; quem não tem atividade será pulado.")
+                session.rollback()
         settings = load_email_settings(session)
     return EnvioContexto(flags=snapshot, admins=emails_admin(), geral=geral, settings=settings)
 

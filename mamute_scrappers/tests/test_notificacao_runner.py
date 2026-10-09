@@ -214,3 +214,54 @@ class TestCompartilhar:
         report, _ = self._rodar(monkeypatch, banco, _contexto())
 
         assert report.highlights[0].share_code is None
+
+
+class TestRevisao:
+    def test_flags_so_valem_para_o_quinzenal(self, banco) -> None:
+        """Revisão I2: o mesmo runner faz o diário; texto e cadência são da quinzena."""
+        banco.favoritos = []
+        contexto = _contexto(flags.FLAG_DESTAQUES_GERAIS)
+
+        assert report_builder.build_project_report(None, PAGO, "day", contexto=contexto) is None
+
+        banco.favoritos = [ANA]
+        todas = _contexto(*flags.TODAS)
+        report = report_builder.build_project_report(None, PAGO, "week", contexto=todas)
+        assert (report.motivo_geral, report.balanco, report.mostrar_convite, report.design_novo) == (
+            None,
+            [],
+            False,
+            False,
+        )
+
+    def test_destaques_gerais_vazios_voltam_a_pular(self, banco) -> None:
+        """Revisão I1: sem conteúdo geral, mandar e-mail vazio é pior que pular."""
+        banco.favoritos = []
+        contexto = _contexto(flags.FLAG_DESTAQUES_GERAIS)
+        contexto.geral = GeneralHighlights()
+
+        assert _montar(contexto) is None
+
+    def test_falha_ao_montar_destaques_gerais_nao_derruba_o_envio(self, monkeypatch) -> None:
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _sessao():
+            yield SimpleNamespace(rollback=lambda: None)
+
+        monkeypatch.setattr(runner, "session_scope", _sessao)
+        monkeypatch.setattr(
+            runner,
+            "carregar_flags",
+            lambda s: flags.FlagSnapshot(estados={flags.FLAG_DESTAQUES_GERAIS: "all"}),
+        )
+
+        def _explode(*a):
+            raise RuntimeError("timeout")
+
+        monkeypatch.setattr(runner, "build_general_highlights", _explode)
+        monkeypatch.setattr(runner, "load_email_settings", lambda s: {})
+
+        contexto = runner.carregar_contexto("fortnight")
+
+        assert contexto.geral is None

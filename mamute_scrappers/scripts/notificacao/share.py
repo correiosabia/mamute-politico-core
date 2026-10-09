@@ -13,7 +13,7 @@ import secrets
 import string
 from datetime import datetime
 from typing import Optional
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -72,8 +72,14 @@ def share_code_for(session: Session, item: ActivityItem, *, chamber: str) -> Opt
         return None
 
 
+def origem(app_url: str) -> str:
+    """'https://site/app' -> 'https://site'. A API mora em /api na raiz; /app* é a UI."""
+    partes = urlsplit(app_url)
+    return f"{partes.scheme}://{partes.netloc}" if partes.netloc else app_url.rstrip("/")
+
+
 def share_links(app_url: str, code: str, share_text: str) -> dict[str, str]:
-    url = f"{app_url.rstrip('/')}/api/s/{code}"
+    url = f"{origem(app_url)}/api/s/{code}"
     texto = (share_text or "").strip() or TEXTO_PADRAO
     return {
         "url": url,
