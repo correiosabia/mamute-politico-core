@@ -32,6 +32,7 @@ class DashboardStats:
     propositions_count: int = 0
     votes_count: int = 0
     speeches_count: int = 0
+    amendments_count: int = 0
     attendance_avg_percent: Optional[int] = None
 
 
@@ -44,6 +45,9 @@ class ActivityItem:
     ementa: Optional[str] = None
     link: Optional[str] = None
     occurred_at: Optional[date | datetime] = None
+    # Para o link curto do compartilhamento: proposicao|votacao|discurso|emenda + id.
+    kind_key: str = ""
+    item_id: Optional[int] = None
 
 
 @dataclass

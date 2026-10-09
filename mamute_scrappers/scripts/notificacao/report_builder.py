@@ -241,7 +241,7 @@ def _stat_card(
     value_size: str = "26px",
 ) -> str:
     return (
-        f'<td width="33%" style="padding:6px;vertical-align:top;">'
+        f'<td width="25%" style="padding:6px;vertical-align:top;">'
         f'<div style="background:{background};border:1px solid #e5e7eb;'
         f"border-top:3px solid {accent};border-radius:8px;padding:14px 10px;text-align:center;\">"
         f'<div style="font-size:{value_size};font-weight:700;color:#111;line-height:1.2;">'
@@ -272,10 +272,16 @@ def _render_stats_summary(stats: DashboardStats, date_range_label: str) -> str:
                 accent="#7c3aed",
                 background="#f5f3ff",
             ),
+            _stat_card(
+                "Emendas",
+                stats.amendments_count,
+                accent="#d97706",
+                background="#fffbeb",
+            ),
         ]
     )
     period_row = (
-        '<tr><td colspan="3" style="padding:6px;">'
+        '<tr><td colspan="4" style="padding:6px;">'
         f'<div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:3px solid #6b7280;'
         f'border-radius:8px;padding:14px 16px;text-align:center;">'
         f'<div style="font-size:11px;color:#6b7280;font-weight:600;'

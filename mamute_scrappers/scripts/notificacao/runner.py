@@ -80,6 +80,7 @@ def _process_recipient(
             "proposicoes": report.stats.propositions_count,
             "votacoes": report.stats.votes_count,
             "discursos": report.stats.speeches_count,
+            "emendas": report.stats.amendments_count,
             "destaques": len(report.highlights),
             "parlamentares": len(report.parliamentarians),
         }
@@ -87,6 +88,7 @@ def _process_recipient(
             report.stats.propositions_count
             + report.stats.votes_count
             + report.stats.speeches_count
+            + report.stats.amendments_count
             > 0
             or bool(report.highlights)
         )

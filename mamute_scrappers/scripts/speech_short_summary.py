@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 from datetime import date, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from mamute_scrappers.scripts.notificacao.labels import cortar_na_frase
 
 logger = logging.getLogger(__name__)
 
@@ -46,24 +47,8 @@ PROMPT_SISTEMA = (
     "Responda só com o resumo, sem aspas e sem prefixo."
 )
 
-_FIM_DE_FRASE = re.compile(r"[.!?…](?=\s|$)")
-
-
 def _limpo(valor: Optional[str]) -> str:
     return " ".join((valor or "").split())
-
-
-def cortar_na_frase(texto: str, limite: int) -> str:
-    """Corta no fim da última frase que cabe; sem frase inteira, na palavra com reticências."""
-    texto = _limpo(texto)
-    if len(texto) <= limite:
-        return texto
-    trecho = texto[:limite]
-    fins = [m.end() for m in _FIM_DE_FRASE.finditer(trecho)]
-    if fins:
-        return trecho[: fins[-1]].strip()
-    palavras = trecho[: limite - 1].rsplit(" ", 1)[0].rstrip(" ,;:")
-    return f"{palavras}…"
 
 
 def escolher_fonte(summary: Optional[str], speech_text: Optional[str]) -> Optional[tuple[str, str]]:

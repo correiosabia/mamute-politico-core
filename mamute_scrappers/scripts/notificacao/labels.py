@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import re
+from decimal import Decimal
 from typing import Optional
+
+
+_FIM_DE_FRASE = re.compile(r"[.!?…](?=\s|$)")
 
 
 def is_camara_proposition(link: Optional[str]) -> bool:
@@ -74,16 +79,49 @@ def format_parliamentarian_display_name(name: Optional[str]) -> str:
     )
 
 
+def cortar_na_frase(texto: Optional[str], limite: int) -> str:
+    """Corta no fim da última frase que cabe; sem frase inteira, na palavra com reticências."""
+    limpo = " ".join((texto or "").split())
+    if len(limpo) <= limite:
+        return limpo
+    trecho = limpo[:limite]
+    fins = [m.end() for m in _FIM_DE_FRASE.finditer(trecho)]
+    if fins:
+        return trecho[: fins[-1]].strip()
+    palavras = trecho[: limite - 1].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return f"{palavras}…"
+
+
+_CONECTIVOS = frozenset({"de", "do", "da", "dos", "das", "e"})
+
+
+def format_localidade(valor: Optional[str]) -> str:
+    """'MATÃO - SP' -> 'Matão - SP'; 'MATO GROSSO (UF)' -> 'Mato Grosso (UF)'."""
+    partes = []
+    for i, parte in enumerate((valor or "").split()):
+        if (len(parte) == 2 and parte.isalpha() and parte.isupper()) or parte.startswith("("):
+            partes.append(parte)
+        elif i and parte.lower() in _CONECTIVOS:
+            partes.append(parte.lower())
+        else:
+            partes.append(parte[:1].upper() + parte[1:].lower())
+    return " ".join(partes)
+
+
+def format_brl(valor: float | Decimal | int) -> str:
+    """196000 -> "R$ 196.000,00"."""
+    inteiro, centavos = f"{Decimal(str(valor)):,.2f}".split(".")
+    return f"R$ {inteiro.replace(',', '.')},{centavos}"
+
+
 def extract_ementa(
     proposition_description: Optional[str],
     summary: Optional[str],
     *,
-    max_length: int = 320,
+    max_length: int = 280,
 ) -> Optional[str]:
-    """Ementa/resumo da proposição (mesma prioridade da UI)."""
+    """Ementa/resumo da proposição (mesma prioridade da UI), cortada na frase."""
     text = (proposition_description or summary or "").strip()
     if not text:
         return None
-    if len(text) > max_length:
-        return text[: max_length - 3] + "..."
-    return text
+    return cortar_na_frase(text, max_length)
