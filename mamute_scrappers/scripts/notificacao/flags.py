@@ -15,6 +15,7 @@ Tabela ausente = tudo desligado: o envio continua como antes.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 from sqlalchemy import bindparam, text
@@ -72,3 +73,9 @@ def carregar_flags(session: Session) -> FlagSnapshot:
         planos_liberados={k: frozenset(v) for k, v in liberados.items()},
     )
 
+
+
+def emails_admin() -> frozenset[str]:
+    """Mesma fonte do gate do app (MAMUTE_ADMIN_EMAILS)."""
+    raw = os.getenv("MAMUTE_ADMIN_EMAILS", "")
+    return frozenset(e.strip().lower() for e in raw.split(",") if e.strip())

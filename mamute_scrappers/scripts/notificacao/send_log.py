@@ -21,6 +21,9 @@ STATUS_SENT = "sent"
 STATUS_ERROR = "error"
 STATUS_SKIPPED_NO_FAVORITES = "skipped_no_favorites"
 STATUS_SKIPPED_NO_ACTIVITY = "skipped_no_activity"
+# Com a flag email_destaques_gerais: quem antes era pulado recebe os destaques gerais.
+STATUS_SENT_GENERAL = "sent_general"
+STATUS_SENT_NO_ACTIVITY = "sent_no_activity"
 
 
 def log_send_attempt(

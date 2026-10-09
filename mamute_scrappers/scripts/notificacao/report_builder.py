@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 from collections import OrderedDict
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -17,10 +18,19 @@ from .config import (
     get_branding,
     subject_for_periodicidade,
 )
+from .flags import (
+    FLAG_BALANCO,
+    FLAG_CONVITE,
+    FLAG_DESIGN_NOVO,
+    FLAG_DESTAQUES_GERAIS,
+    FlagSnapshot,
+)
 from .models import (
     ActivityItem,
     DashboardStats,
     FavoriteParliamentarian,
+    GeneralHighlights,
+    ParliamentarianBalance,
     ProjectRecipient,
     ProjectReport,
 )
@@ -66,6 +76,53 @@ def _favorites_with_highlights(
     return [fav for fav in favorites if fav.display_name in active_names]
 
 
+@dataclass
+class EnvioContexto:
+    """O que vale para o envio inteiro: flags, admins e os destaques gerais.
+
+    Lido uma vez por envio. O padrão (tudo desligado) reproduz o relatório de
+    sempre, que é o que acontece se ninguém ligar as flags.
+    """
+
+    flags: FlagSnapshot = field(default_factory=FlagSnapshot)
+    admins: frozenset[str] = frozenset()
+    geral: Optional[GeneralHighlights] = None
+
+    def ativa(self, key: str, recipient: ProjectRecipient) -> bool:
+        return self.flags.ativa(key, recipient, self.admins)
+
+
+def _aplicar_flags(
+    report: ProjectReport, contexto: EnvioContexto, recipient: ProjectRecipient
+) -> ProjectReport:
+    report.mostrar_convite = contexto.ativa(FLAG_CONVITE, recipient)
+    report.design_novo = contexto.ativa(FLAG_DESIGN_NOVO, recipient)
+    return report
+
+
+def _balanco(
+    session: Session,
+    favorites: list[FavoriteParliamentarian],
+    highlights: list[ActivityItem],
+    **periodo,
+) -> list[ParliamentarianBalance]:
+    """Todos os selecionados, inclusive quem não teve atividade (dizendo isso)."""
+    linhas: list[ParliamentarianBalance] = []
+    for favorite in favorites:
+        destaque = next(
+            (item for item in highlights if item.parliamentarian_name == favorite.display_name),
+            None,
+        )
+        linhas.append(
+            ParliamentarianBalance(
+                favorite=favorite,
+                stats=compute_dashboard_stats(session, [favorite.id], **periodo),
+                destaque=destaque,
+            )
+        )
+    return linhas
+
+
 def build_project_report(
     session: Session,
     recipient: ProjectRecipient,
@@ -73,11 +130,30 @@ def build_project_report(
     *,
     highlight_limit: int = 9,
     branding: EmailBranding | None = None,
+    contexto: EnvioContexto | None = None,
 ) -> ProjectReport | None:
-    """Monta dados do relatório; retorna None se não houver favoritos."""
+    """Monta dados do relatório.
+
+    Sem favoritos devolve None (conta pulada), a não ser que a flag dos
+    destaques gerais esteja ligada para a conta.
+    """
+    contexto = contexto or EnvioContexto()
+    gerais = periodicidade != PERIODICIDADE_TESTE and contexto.ativa(
+        FLAG_DESTAQUES_GERAIS, recipient
+    )
     favorites = list_favorite_parliamentarians(session, recipient.id)
     if not favorites:
-        return None
+        if not gerais:
+            return None
+        range_start, range_end, _, _ = date_range_for_period(PERIOD_DAYS[periodicidade])
+        report = ProjectReport(
+            recipient=recipient,
+            range_start=range_start,
+            range_end=range_end,
+            motivo_geral="sem_selecao",
+            geral=contexto.geral or GeneralHighlights(),
+        )
+        return _aplicar_flags(report, contexto, recipient)
 
     parliamentarian_ids = [fav.id for fav in favorites]
 
@@ -123,7 +199,7 @@ def build_project_report(
 
     active_favorites = _favorites_with_highlights(favorites, highlights)
 
-    return ProjectReport(
+    report = ProjectReport(
         recipient=recipient,
         parliamentarians=[fav.display_name for fav in active_favorites],
         favorite_parliamentarians=active_favorites,
@@ -132,6 +208,21 @@ def build_project_report(
         range_start=range_start,
         range_end=range_end,
     )
+    if gerais and not report.tem_atividade:
+        report.motivo_geral = "sem_atividade"
+        report.geral = contexto.geral or GeneralHighlights()
+    if periodicidade != PERIODICIDADE_TESTE and contexto.ativa(FLAG_BALANCO, recipient):
+        report.balanco = _balanco(
+            session,
+            favorites,
+            highlights,
+            range_start=range_start,
+            range_end=range_end,
+            range_start_dt=range_start_dt,
+            range_end_dt_exclusive=range_end_dt,
+            include_ingested_propositions=include_ingested,
+        )
+    return _aplicar_flags(report, contexto, recipient)
 
 
 def render_report_html(

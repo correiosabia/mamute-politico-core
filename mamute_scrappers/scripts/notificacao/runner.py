@@ -12,17 +12,26 @@ from mamute_scrappers.db import session_scope
 from mamute_scrappers.db.session import get_session
 
 from .config import (
+    PERIOD_DAYS,
     PERIODICIDADE_TESTE,
     default_highlight_limit,
     subject_for_periodicidade,
 )
 from .mailer import send_html_email
 from .models import ProjectRecipient
-from .report_builder import build_project_report, render_report_html
-from .repository import get_recipient_by_id, list_recipients_for_periodicity
+from .flags import FLAG_DESTAQUES_GERAIS, carregar_flags, emails_admin
+from .geral import build_general_highlights
+from .report_builder import EnvioContexto, build_project_report, render_report_html
+from .repository import (
+    date_range_for_period,
+    get_recipient_by_id,
+    list_recipients_for_periodicity,
+)
 from .send_log import (
     STATUS_ERROR,
     STATUS_SENT,
+    STATUS_SENT_GENERAL,
+    STATUS_SENT_NO_ACTIVITY,
     STATUS_SKIPPED_NO_ACTIVITY,
     STATUS_SKIPPED_NO_FAVORITES,
     log_send_attempt,
@@ -49,6 +58,7 @@ def _process_recipient(
     skip_empty: bool,
     save_html: bool,
     output_dir: Path,
+    contexto: Optional[EnvioContexto] = None,
 ) -> str:
     session = get_session()
 
@@ -71,6 +81,7 @@ def _process_recipient(
             recipient,
             periodicidade,
             highlight_limit=highlight_limit,
+            contexto=contexto,
         )
         if report is None:
             _log(STATUS_SKIPPED_NO_FAVORITES)
@@ -84,15 +95,7 @@ def _process_recipient(
             "destaques": len(report.highlights),
             "parlamentares": len(report.parliamentarians),
         }
-        has_activity = (
-            report.stats.propositions_count
-            + report.stats.votes_count
-            + report.stats.speeches_count
-            + report.stats.amendments_count
-            > 0
-            or bool(report.highlights)
-        )
-        if skip_empty and not has_activity:
+        if skip_empty and not report.tem_atividade and report.motivo_geral is None:
             _log(
                 STATUS_SKIPPED_NO_ACTIVITY,
                 stats=report_stats,
@@ -116,8 +119,12 @@ def _process_recipient(
 
         subject = subject_for_periodicidade(periodicidade)
         send_html_email(html_body, recipient.email, subject)
+        status = {
+            "sem_selecao": STATUS_SENT_GENERAL,
+            "sem_atividade": STATUS_SENT_NO_ACTIVITY,
+        }.get(report.motivo_geral or "", STATUS_SENT)
         _log(
-            STATUS_SENT,
+            status,
             subject=subject,
             stats=report_stats,
             period_start=report.range_start,
@@ -153,6 +160,18 @@ def resolve_recipients(
             periodicidade,
             include_without_tier=include_without_tier,
         )
+
+
+def carregar_contexto(periodicidade: str) -> EnvioContexto:
+    """Flags e destaques gerais, uma vez por envio (e não por conta)."""
+    with session_scope() as session:
+        snapshot = carregar_flags(session)
+        geral = None
+        dias = PERIOD_DAYS.get(periodicidade)
+        if dias and snapshot.estados.get(FLAG_DESTAQUES_GERAIS, "off") != "off":
+            inicio, fim, _, _ = date_range_for_period(dias)
+            geral = build_general_highlights(session, inicio, fim)
+    return EnvioContexto(flags=snapshot, admins=emails_admin(), geral=geral)
 
 
 def run(
@@ -199,6 +218,9 @@ def run(
             periodicidade,
         )
 
+    contexto = carregar_contexto(periodicidade)
+    logger.info("Flags do e-mail: %s", contexto.flags.estados or "todas desligadas")
+
     workers = max_workers or os.cpu_count() or 4
     logger.info(
         "Processando %s projeto(s) com %s worker(s). dry_run=%s limite=%s",
@@ -219,6 +241,7 @@ def run(
                 skip_empty=skip_empty,
                 save_html=save_html,
                 output_dir=out_dir,
+                contexto=contexto,
             )
             for recipient in recipients
         ]

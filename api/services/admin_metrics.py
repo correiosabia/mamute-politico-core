@@ -814,7 +814,8 @@ def metrics_emails(
         )
 
     hist = historico or []
-    enviados = [h for h in hist if h["status"] == "sent"]
+    # sent, sent_general e sent_no_activity (CS-133): todos saíram de fato.
+    enviados = [h for h in hist if h["status"].startswith("sent")]
     return {
         "log_disponivel": historico is not None,
         "kpis": {
