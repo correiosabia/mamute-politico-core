@@ -393,6 +393,13 @@ def _parlamentar_out(p: Parliamentarian) -> dict[str, Any]:
     }
 
 
+def _foi_eleito(r: CandidacyResult) -> bool:
+    """O TSE marca `e = "s"` também para quem vai ao 2º turno: eleito é
+    `eleito` com a situação começando por "Eleito" (regra de `foi_eleito`
+    na coleta e do perfil dos eleitos)."""
+    return bool(r.eleito) and (r.situacao or "").strip().lower().startswith("eleito")
+
+
 def _candidatura_out(c: Candidacy, r: Optional[CandidacyResult]) -> dict[str, Any]:
     return {
         "id": int(c.id),
@@ -408,7 +415,7 @@ def _candidatura_out(c: Candidacy, r: Optional[CandidacyResult]) -> dict[str, An
         else {
             "round": r.turno,
             "status": r.situacao,
-            "elected": r.eleito,
+            "elected": _foi_eleito(r),
             "votes": r.votos,
             "percent": _num(r.percentual),
             "final": bool(r.totalizacao_final),
