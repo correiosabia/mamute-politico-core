@@ -54,7 +54,9 @@ jobs:
       # Mesmo motivo: o FROM python:... sai do espelho, sem o limite do Docker Hub.
       - name: Usa o espelho do Docker Hub
         run: |
-          echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          f=/etc/docker/daemon.json
+          base=$( [ -s "$f" ] && sudo cat "$f" || echo '{}' )
+          echo "$base" | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee "$f"
           sudo systemctl restart docker
       - name: Build da imagem
         run: docker build -t mamute-api-smoke:ci api/
