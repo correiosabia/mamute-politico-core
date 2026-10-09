@@ -189,6 +189,25 @@ são resolvidos a cada leitura:
 
 Toda escrita entra no `admin_audit_log`.
 
+## Discursos e temas por janela (CS-124)
+
+O card de Estatísticas e a nuvem de temas usam as mesmas duas janelas: últimos
+3 meses ("o que ele andou fazendo agora") e legislatura vigente ("que
+parlamentar ele é"). A Pesquisa IA consulta o histórico inteiro, por isso cita
+discursos fora das duas.
+
+- `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve
+  `speeches_count` (3 meses) e `speeches_legislature`.
+- `GET /api/analysis/parliamentarian/{code}/terms?window=legislature|last_3_months`
+  soma no banco a palavra-chave principal de cada discurso da janela. A
+  listagem paginada (`/analysis/parliamentarian/{code}`) para em 100 discursos
+  e cortava a nuvem de quem discursa muito.
+
+Os termos de `/terms` voltam crus, sem normalizar caixa e sem stopwords: quem
+consome aplica as listas de `word_cloud_terms`, as mesmas da tela de
+configurações. `speeches_count` e `speeches_analyzed` vêm separados para a tela
+distinguir "não discursou" de "discursou e ainda não foi analisado".
+
 ## Presença no card de Estatísticas (CS-79)
 
 `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve
