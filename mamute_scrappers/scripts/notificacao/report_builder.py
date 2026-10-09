@@ -87,6 +87,7 @@ class EnvioContexto:
     flags: FlagSnapshot = field(default_factory=FlagSnapshot)
     admins: frozenset[str] = frozenset()
     geral: Optional[GeneralHighlights] = None
+    settings: dict[str, str] = field(default_factory=dict)
 
     def ativa(self, key: str, recipient: ProjectRecipient) -> bool:
         return self.flags.ativa(key, recipient, self.admins)
@@ -225,13 +226,24 @@ def build_project_report(
     return _aplicar_flags(report, contexto, recipient)
 
 
+def url_absoluta(app_url: str, valor: str) -> str:
+    """Imagem enviada pelo Admin vem como caminho; cliente de e-mail precisa da URL inteira."""
+    return f"{app_url.rstrip('/')}{valor}" if valor.startswith("/") else valor
+
+
 def render_report_html(
     report: ProjectReport,
     periodicidade: str,
     *,
     branding: EmailBranding | None = None,
+    settings: dict[str, str] | None = None,
 ) -> str:
     brand = branding or get_branding()
+    config = settings or {}
+    if report.design_novo:
+        from .render_v2 import render_v2
+
+        return render_v2(report, periodicidade, brand, config)
     template = _TEMPLATE_PATH.read_text(encoding="utf-8")
 
     subject = subject_for_periodicidade(periodicidade)
@@ -250,6 +262,17 @@ def render_report_html(
         f'<a href="{html.escape(brand.app_url)}">Mamute Político</a> '
         f"no período: {html.escape(period_label)}."
     )
+    if report.motivo_geral == "sem_selecao":
+        intro = (
+            "Você ainda não escolheu parlamentares para acompanhar. Enquanto isso, "
+            "veja o que movimentou o Congresso no período: "
+            f"{html.escape(period_label)}."
+        )
+        parliamentarians_html = (
+            f'<a href="{html.escape(brand.manage_url)}" style="display:inline-block;'
+            'padding:10px 18px;background:#1f2b44;color:#fff;border-radius:999px;'
+            'font-weight:700;text-decoration:none;">Escolha seus parlamentares</a>'
+        )
 
     test_notice = _render_test_notice(periodicidade)
 
@@ -257,6 +280,10 @@ def render_report_html(
         f"Acesse o painel completo em "
         f'<a href="{html.escape(brand.app_url)}">{html.escape(brand.app_url)}</a>.'
     )
+    if config.get("instagram_url"):
+        footer += (
+            f'<br>Siga o Mamute no <a href="{html.escape(config["instagram_url"])}">Instagram</a>.'
+        )
 
     replacements = {
         "{{SUBJECT}}": html.escape(subject),
@@ -268,13 +295,26 @@ def render_report_html(
         "{{TEST_NOTICE}}": test_notice,
         "{{PARLIAMENTARIANS}}": parliamentarians_html,
         "{{PERIOD_LABEL}}": html.escape(period_label),
-        "{{STATS_SUMMARY}}": _render_stats_summary(
-            report.stats, date_range_label
+        "{{STATS_SUMMARY}}": (
+            '<p style="margin:8px 0 0;">Os números dos seus parlamentares aparecem aqui '
+            "depois que você escolher quem acompanhar.</p>"
+            if report.motivo_geral == "sem_selecao"
+            else _render_stats_summary(report.stats, date_range_label)
         ),
-        "{{HIGHLIGHTS}}": _render_highlights(
-            report.highlights, report.favorite_parliamentarians
+        "{{HIGHLIGHTS}}": (
+            _render_geral_v1(report)
+            if report.motivo_geral
+            else _render_highlights(report.highlights, report.favorite_parliamentarians)
         ),
         "{{FOOTER}}": footer,
+        "{{BANNER}}": _render_imagem_linha(
+            brand, config.get("banner_image_url", ""), config.get("banner_link_url", ""), "Patrocínio"
+        ),
+        "{{BALANCO}}": _render_balanco_v1(report.balanco),
+        "{{CONVITE}}": _render_convite_v1(report, config),
+        "{{RODAPE_PATROCINIO}}": _render_imagem_linha(
+            brand, config.get("footer_image_url", ""), config.get("footer_link_url", ""), "Patrocínio"
+        ),
     }
 
     for key, value in replacements.items():
@@ -485,3 +525,95 @@ def _render_highlights(
         return '<p class="muted">Nenhuma atividade registrada no período.</p>'
 
     return "\n".join(sections)
+
+
+# --- Blocos novos do design atual (CS-116/133/134). Vazios = string vazia, ---
+# --- para o e-mail sair idêntico ao de antes quando nada está ligado.       ---
+
+AVISO_SEM_ATIVIDADE = (
+    "Seus parlamentares não tiveram atividade registrada nesta quinzena. "
+    "Veja o que movimentou o Congresso no período."
+)
+SEM_ATIVIDADE_PARLAMENTAR = "Sem atividade registrada nesta quinzena."
+
+
+def _render_imagem_linha(brand: EmailBranding, imagem: str, link: str, alt: str) -> str:
+    if not imagem:
+        return ""
+    img = (
+        f'<img src="{html.escape(url_absoluta(brand.app_url, imagem))}" width="600" '
+        f'alt="{html.escape(alt)}" style="display:block;width:100%;max-width:600px;height:auto;border:0;">'
+    )
+    if link:
+        img = f'<a href="{html.escape(link)}">{img}</a>'
+    return f"\n          <tr>\n            <td>{img}</td>\n          </tr>"
+
+
+def _render_convite_v1(report: ProjectReport, config: dict[str, str]) -> str:
+    link = config.get("subscribe_url", "")
+    if not report.mostrar_convite or not link:
+        return ""
+    return (
+        '\n          <tr>\n            <td class="section" style="text-align:center;">'
+        '<p style="margin:0 0 12px;">Quer o balanço completo de todos os parlamentares que você acompanha?</p>'
+        f'<a href="{html.escape(link)}" style="display:inline-block;padding:12px 22px;'
+        'background:#1b76ff;color:#fff;border-radius:999px;font-weight:700;text-decoration:none;">'
+        "Assine o Mamute Completo</a></td>\n          </tr>"
+    )
+
+
+def _contagens_texto(stats: DashboardStats) -> str:
+    partes = [
+        (stats.propositions_count, "projeto", "projetos"),
+        (stats.votes_count, "votação", "votações"),
+        (stats.speeches_count, "discurso", "discursos"),
+        (stats.amendments_count, "emenda", "emendas"),
+    ]
+    return " · ".join(f"{n} {um if n == 1 else varios}" for n, um, varios in partes)
+
+
+def balanco_tem_atividade(stats: DashboardStats) -> bool:
+    return (
+        stats.propositions_count + stats.votes_count + stats.speeches_count + stats.amendments_count
+    ) > 0
+
+
+def _render_balanco_v1(balanco: list[ParliamentarianBalance]) -> str:
+    if not balanco:
+        return ""
+    linhas = []
+    for linha in balanco:
+        if balanco_tem_atividade(linha.stats):
+            detalhe = html.escape(_contagens_texto(linha.stats))
+            if linha.destaque:
+                detalhe += f"<br><span style=\"color:#374151;\">Destaque: {html.escape(linha.destaque.title)}</span>"
+        else:
+            detalhe = html.escape(SEM_ATIVIDADE_PARLAMENTAR)
+        linhas.append(
+            '<div style="padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:14px;">'
+            f"<strong>{_format_highlight_heading(linha.favorite)}</strong><br>"
+            f'<span style="color:#6b7280;">{detalhe}</span></div>'
+        )
+    return (
+        '<h2 style="color:#111;font-size:18px;margin:24px 0 8px;">Balanço dos seus parlamentares</h2>'
+        + "".join(linhas)
+    )
+
+
+def _render_geral_v1(report: ProjectReport) -> str:
+    partes: list[str] = []
+    if report.motivo_geral == "sem_atividade":
+        partes.append(f'<p style="margin:0 0 12px;">{html.escape(AVISO_SEM_ATIVIDADE)}</p>')
+    geral = report.geral
+    if geral and geral.votacoes:
+        partes.append('<h3 style="margin:12px 0 6px;font-size:16px;color:#111;">Votações no plenário</h3>')
+        partes.extend(_render_one_highlight(item, link_color="#1b76ff") for item in geral.votacoes)
+    if geral and geral.temas:
+        temas = ", ".join(html.escape(t) for t in geral.temas)
+        partes.append(
+            '<h3 style="margin:16px 0 6px;font-size:16px;color:#111;">Temas mais falados nos discursos</h3>'
+            f'<p style="margin:0;color:#374151;">{temas}</p>'
+        )
+    if len(partes) <= 1:
+        partes.append('<p class="muted">Nenhuma atividade registrada no período.</p>')
+    return "\n".join(partes)

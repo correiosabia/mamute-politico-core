@@ -26,7 +26,7 @@
             <td class="logo-header">
               <img src="{{LOGO_URL}}" width="220" alt="Mamute Político" style="display:block; margin:0 auto;">
             </td>
-          </tr>
+          </tr>{{BANNER}}
           <tr>
             <td class="section">
               <h1>{{SUBJECT}}</h1>
@@ -45,7 +45,7 @@
             <td class="section">
               <h2>Resumo do período</h2>
               <p style="margin:0 0 4px;font-size:14px;color:#6b7280;">{{PERIOD_LABEL}}</p>
-              {{STATS_SUMMARY}}
+              {{STATS_SUMMARY}}{{BALANCO}}
             </td>
           </tr>
           <tr>
@@ -53,12 +53,12 @@
               <h2>Destaques recentes</h2>
               {{HIGHLIGHTS}}
             </td>
-          </tr>
+          </tr>{{CONVITE}}
           <tr>
             <td class="footer">
               {{FOOTER}}
             </td>
-          </tr>
+          </tr>{{RODAPE_PATROCINIO}}
           <tr>
             <td class="legal">
               <a href="{{PRIVACY_URL}}">Política de privacidade</a>

@@ -177,3 +177,40 @@ class TestStatus:
         self._processar(_contexto())
 
         assert envio.status == ["sent"]
+
+
+class TestCompartilhar:
+    def _rodar(self, monkeypatch, banco, contexto):
+        renderizados = []
+        monkeypatch.setattr(runner, "get_session", lambda: SimpleNamespace(close=lambda: None, rollback=lambda: None))
+        monkeypatch.setattr(runner, "log_send_attempt", lambda session, **k: None)
+        monkeypatch.setattr(runner, "send_html_email", lambda *a: None)
+        monkeypatch.setattr(
+            runner, "render_report_html", lambda report, p, **k: renderizados.append((report, k)) or "<html/>"
+        )
+        monkeypatch.setattr(
+            runner, "share_code_for", lambda s, item, chamber: f"cod{item.item_id}-{chamber}"
+        )
+        banco.contagens = {10: 1}
+        banco.destaques = [
+            ActivityItem(kind="discurso", title="x", subtitle="", parliamentarian_name="Ana", kind_key="discurso", item_id=7)
+        ]
+        runner._process_recipient(
+            PAGO, "fortnight", dry_run=False, highlight_limit=9, skip_empty=True,
+            save_html=False, output_dir=None, contexto=contexto,
+        )
+        return renderizados[0]
+
+    def test_design_novo_ganha_codigo_com_a_casa_do_parlamentar(self, monkeypatch, banco) -> None:
+        contexto = _contexto(flags.FLAG_DESIGN_NOVO)
+        contexto.settings = {"share_text": "oi"}
+
+        report, kwargs = self._rodar(monkeypatch, banco, contexto)
+
+        assert report.highlights[0].share_code == "cod7-Câmara"
+        assert kwargs["settings"] == {"share_text": "oi"}
+
+    def test_design_atual_nao_grava_link_curto(self, monkeypatch, banco) -> None:
+        report, _ = self._rodar(monkeypatch, banco, _contexto())
+
+        assert report.highlights[0].share_code is None

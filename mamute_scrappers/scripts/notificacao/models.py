@@ -48,6 +48,8 @@ class ActivityItem:
     # Para o link curto do compartilhamento: proposicao|votacao|discurso|emenda + id.
     kind_key: str = ""
     item_id: Optional[int] = None
+    # Código do link curto (share_link), preenchido no envio do design novo.
+    share_code: Optional[str] = None
 
 
 @dataclass

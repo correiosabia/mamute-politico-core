@@ -21,6 +21,8 @@ from .mailer import send_html_email
 from .models import ProjectRecipient
 from .flags import FLAG_DESTAQUES_GERAIS, carregar_flags, emails_admin
 from .geral import build_general_highlights
+from .settings import load_email_settings
+from .share import share_code_for
 from .report_builder import EnvioContexto, build_project_report, render_report_html
 from .repository import (
     date_range_for_period,
@@ -104,7 +106,13 @@ def _process_recipient(
             )
             return f"projeto {recipient.id}: sem atividade no período"
 
-        html_body = render_report_html(report, periodicidade)
+        if report.design_novo:
+            _atribuir_links_curtos(session, report)
+        html_body = render_report_html(
+            report,
+            periodicidade,
+            settings=contexto.settings if contexto else None,
+        )
 
         if save_html or dry_run:
             path = _save_html(recipient.id, periodicidade, html_body, output_dir)
@@ -143,6 +151,18 @@ def _process_recipient(
         session.close()
 
 
+def _atribuir_links_curtos(session, report) -> None:
+    """Código de compartilhamento de cada destaque (só o design novo mostra)."""
+    casas = {fav.display_name: fav.chamber for fav in report.favorite_parliamentarians}
+    itens = list(report.highlights)
+    if report.geral:
+        itens.extend(report.geral.votacoes)
+    for item in itens:
+        item.share_code = share_code_for(
+            session, item, chamber=casas.get(item.parliamentarian_name, "")
+        )
+
+
 def resolve_recipients(
     periodicidade: str,
     *,
@@ -171,7 +191,8 @@ def carregar_contexto(periodicidade: str) -> EnvioContexto:
         if dias and snapshot.estados.get(FLAG_DESTAQUES_GERAIS, "off") != "off":
             inicio, fim, _, _ = date_range_for_period(dias)
             geral = build_general_highlights(session, inicio, fim)
-    return EnvioContexto(flags=snapshot, admins=emails_admin(), geral=geral)
+        settings = load_email_settings(session)
+    return EnvioContexto(flags=snapshot, admins=emails_admin(), geral=geral, settings=settings)
 
 
 def run(
