@@ -51,6 +51,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Mesmo motivo: o FROM python:... sai do espelho, sem o limite do Docker Hub.
+      - name: Usa o espelho do Docker Hub
+        run: |
+          echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
       - name: Build da imagem
         run: docker build -t mamute-api-smoke:ci api/
 
@@ -86,7 +91,9 @@ jobs:
     timeout-minutes: 8
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        # Espelho do Google: o Docker Hub limita pull anônimo por IP e os runners
+        # do GitHub são compartilhados (429 em 09/10/2026).
+        image: mirror.gcr.io/pgvector/pgvector:pg16
         env:
           POSTGRES_USER: mamute_test
           POSTGRES_PASSWORD: mamute_test
