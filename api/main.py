@@ -19,6 +19,7 @@ try:
         candidacies,
         collection,
         email_settings,
+        share,
         election_results,
         electoral_history,
         events,
@@ -45,6 +46,7 @@ except ImportError:
         candidacies,
         collection,
         email_settings,
+        share,
         election_results,
         electoral_history,
         events,
@@ -132,6 +134,8 @@ def create_app() -> FastAPI:
     api_router.include_router(email_settings.admin_router)
     # Imagens do e-mail: o cliente de e-mail busca sem login.
     api_router.include_router(email_settings.public_router)
+    # Link curto do relatório por e-mail: quem recebe o compartilhamento não tem login.
+    api_router.include_router(share.router)
 
     api_router.include_router(analysis.router, dependencies=auth_dependencies)
     api_router.include_router(settings.router, dependencies=auth_dependencies)
