@@ -124,6 +124,7 @@ def _to_recipient(project: Projetos) -> ProjectRecipient:
         email=str(project.email).strip(),
         nome=str(project.nome),
         cliente=project.cliente,
+        tier_id=int(project.tier_id) if project.tier_id is not None else None,
     )
 
 

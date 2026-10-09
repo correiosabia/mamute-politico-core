@@ -15,6 +15,7 @@ class ProjectRecipient:
     email: str
     nome: str
     cliente: Optional[str] = None
+    tier_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
