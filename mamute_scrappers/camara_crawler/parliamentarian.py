@@ -498,9 +498,12 @@ def parliamentarian(
             if _SESSION_SCOPE is None:
                 raise RuntimeError("Função de sessão do banco não carregada.")
 
+            listed: set = set()
             with _SESSION_SCOPE() as session:
                 for payload in iterator:
                     processed += 1
+                    if payload.get("parliamentarian_code") is not None:
+                        listed.add(int(payload["parliamentarian_code"]))
                     if interactive or not persist:
                         _debug_print_payload(payload)
                         if interactive and not _wait_for_user():
@@ -510,6 +513,19 @@ def parliamentarian(
                             )
                             return
                     _upsert_parliamentarian(session, payload)
+                # A lista da Câmara só traz quem está em exercício hoje: quem
+                # saiu some dela e ficaria "Exercício" na base para sempre
+                # (CS-141). Só numa execução completa (filtro = lista parcial)
+                # e com lista não vazia (API fora do ar não é "todos saíram").
+                if processed and uf is None and party is None and deputado_id is None:
+                    refreshed = 0
+                    for code in sorted(_codes_marked_in_exercise(session) - listed):
+                        departed = _build_payload_from_json({"id": code})
+                        if departed is not None:
+                            _upsert_parliamentarian(session, departed)
+                            refreshed += 1
+                    if refreshed:
+                        logger.info("Status atualizado de %s deputado(s) fora da lista de exercício", refreshed)
         else:
             for payload in iterator:
                 processed += 1
@@ -597,6 +613,16 @@ def _fetch_parliamentarians(
             continue
         
         yield payload
+
+
+def _codes_marked_in_exercise(session: Session) -> set:
+    """Códigos dos deputados que a base ainda marca como em exercício."""
+    rows = (
+        session.query(Parliamentarian.parliamentarian_code)
+        .filter(Parliamentarian.type == "Deputado", Parliamentarian.status == "Exercício")
+        .all()
+    )
+    return {int(row[0]) for row in rows if row[0] is not None}
 
 
 def _upsert_parliamentarian(session: Session, payload: ParliamentarianPayload) -> Any:
