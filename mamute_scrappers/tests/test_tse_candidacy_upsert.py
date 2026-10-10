@@ -162,3 +162,50 @@ def test_repeticao_no_mesmo_lote_nao_duplica(session):
     session.commit()
     assert created is False
     assert session.query(Candidacy).count() == 1
+
+
+def test_coleta_nao_segura_transacao_durante_as_chamadas(session, monkeypatch):
+    """CS-126: com commit só a cada 200, a transação ficava aberta enquanto o
+    job esperava o TSE (até ~4 min por detalhe que falha)."""
+    from contextlib import contextmanager
+
+    import mamute_scrappers.db as db_mod
+
+    @contextmanager
+    def _escopo():
+        yield session
+        session.commit()
+
+    monkeypatch.setattr(db_mod, "session_scope", _escopo)
+    monkeypatch.setattr(candidacy_mod, "_load_env_file", lambda: None)
+    monkeypatch.setattr(candidacy_mod, "_ensure_model", lambda: None)
+    monkeypatch.setattr(candidacy_mod, "_load_parliamentarian_index", lambda: candidacy_mod.build_index([]))
+    monkeypatch.setattr(candidacy_mod, "_load_known_fingerprints", lambda ano: {})
+    monkeypatch.setattr(candidacy_mod, "OFFICES", ((6, "Deputado Federal", ("PR", "SP")),))
+
+    em_transacao = []
+
+    class _Cliente:
+        def find_general_election_id(self, ano):
+            return 20322002026
+
+        def list_candidates(self, ano, uf, election_id, office_code):
+            em_transacao.append(session.in_transaction())
+            base = 1 if uf == "PR" else 100
+            return [
+                {"id": base + i, "nomeCompleto": f"PESSOA {base + i}", "nomeUrna": f"P{base + i}",
+                 "numero": 1000 + i, "partido": {"sigla": "XX"}}
+                for i in range(3)
+            ]
+
+        def get_candidate_detail(self, ano, uf, election_id, candidate_id):
+            em_transacao.append(session.in_transaction())
+            return None
+
+    monkeypatch.setattr(candidacy_mod, "DivulgaCandClient", _Cliente)
+
+    candidacy_mod.run(ano=2026)
+
+    assert session.query(Candidacy).count() == 6
+    assert len(em_transacao) == 8
+    assert not any(em_transacao)
