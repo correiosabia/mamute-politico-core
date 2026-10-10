@@ -12,12 +12,19 @@ Tres fases, todas idempotentes:
    partir do `eleicoesAnteriores` do detalhe (municipais incluidas).
 3. Drenar patrimonio: linhas com assets_fetched_at NULL -> detalhe daquele
    ano/eleicao -> bens. Parlamentares primeiro, depois anos mais recentes.
+
+Nenhuma transacao fica aberta enquanto o job espera o TSE (CS-126): em
+04/10/2026 a fase 3 ficou 8 h "idle in transaction", travando o autovacuum e
+segurando lock em electoral_history. A fila e lida para a memoria e a
+transacao fecha antes da primeira chamada; cada gravacao e comitada na hora.
+O job desiste com o TSE fora do ar (falhas seguidas) e tem teto de tempo.
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -39,6 +46,9 @@ from mamute_scrappers.tse_crawler.parsing import (  # noqa: E402
 logger = logging.getLogger(__name__)
 
 COMMIT_EVERY = 200
+# Cada detalhe que falha custa ate ~4 min (tentativas + espera): com o TSE fora,
+# 10 falhas seguidas ja sao sinal suficiente para encerrar e tentar amanha.
+MAX_FALHAS_SEGUIDAS = 10
 # Paginacao por keyset na fase 1. NAO trocar por yield_per: o commit
 # intermediario do upsert fecha a transacao e invalida o named cursor do
 # Postgres ("named cursor isn't valid anymore") — derrubou a carga inicial de
@@ -270,6 +280,8 @@ def seed_missing_parliamentarians(
 
     pending: Dict[int, Any] = {row[0]: row for row in _pending_parliamentarians(session)}
     counters["pending_initial"] = len(pending)
+    # Fecha a transacao da leitura antes das listagens do TSE (CS-126).
+    session.commit()
     if not pending:
         return counters
 
@@ -331,6 +343,7 @@ def seed_missing_parliamentarians(
                         assets_year=year,
                         counters=counters,
                     )
+                    session.commit()
                     counters["seeded"] += 1
                     del pending[pid]
                     index = index_pending()
@@ -344,14 +357,23 @@ def seed_missing_parliamentarians(
 
 
 def drain_assets(
-    session: Any, client: DivulgaCandClient, max_details: Optional[int]
-) -> Dict[str, int]:
+    session: Any,
+    client: DivulgaCandClient,
+    max_details: Optional[int],
+    *,
+    prazo_s: Optional[float] = None,
+) -> Dict[str, Any]:
     """Fase 3: preenche bens das linhas com assets_fetched_at NULL."""
     _ensure_models()
-    counters = {"fetched": 0, "failed": 0, "pending_before": 0}
+    counters: Dict[str, Any] = {"fetched": 0, "failed": 0, "pending_before": 0}
 
     query = (
-        session.query(ElectoralHistory)
+        session.query(
+            ElectoralHistory.election_year,
+            ElectoralHistory.state,
+            ElectoralHistory.tse_election_id,
+            ElectoralHistory.tse_candidate_id,
+        )
         .filter(ElectoralHistory.assets_fetched_at.is_(None))
         .order_by(
             ElectoralHistory.parliamentarian_id.is_(None),
@@ -360,29 +382,46 @@ def drain_assets(
         )
     )
     counters["pending_before"] = query.count()
+    fila = (query.limit(max_details) if max_details else query).all()
+    # Fecha a transacao da leitura antes de qualquer chamada ao TSE.
+    session.commit()
 
-    rows = query.limit(max_details).all() if max_details else query.all()
-    for row in rows:
-        if row.tse_election_id is None or not row.state:
+    inicio = time.monotonic()
+    seguidas = 0
+    for year, state, election_id, candidate_id in fila:
+        if prazo_s is not None and time.monotonic() - inicio > prazo_s:
+            counters["interrompido"] = "prazo"
+            logger.warning("Fase 3: teto de %ss atingido; o resto fica para a proxima.", prazo_s)
+            break
+        if election_id is None or not state:
             counters["failed"] += 1
             continue
-        detail = client.get_candidate_detail(
-            row.election_year, row.state, row.tse_election_id, row.tse_candidate_id
-        )
+        detail = client.get_candidate_detail(year, state, election_id, candidate_id)
         if detail is None:
             counters["failed"] += 1
+            seguidas += 1
+            if seguidas >= MAX_FALHAS_SEGUIDAS:
+                counters["interrompido"] = "falhas_seguidas"
+                logger.error(
+                    "Fase 3: %s falhas seguidas na DivulgaCandContas; encerrando.", seguidas
+                )
+                break
             continue
-        payload = {
-            "election_year": row.election_year,
-            "tse_candidate_id": row.tse_candidate_id,
-            **build_assets_payload(detail),
-            "assets_fetched_at": datetime.utcnow(),
-        }
-        upsert_history(session, payload)
+        seguidas = 0
+        upsert_history(
+            session,
+            {
+                "election_year": year,
+                # O state faz parte da chave natural (CS-69); sem ele o upsert
+                # criaria outra linha e a original ficaria pendente para sempre.
+                "state": state,
+                "tse_candidate_id": candidate_id,
+                **build_assets_payload(detail),
+                "assets_fetched_at": datetime.utcnow(),
+            },
+        )
+        session.commit()
         counters["fetched"] += 1
-        if counters["fetched"] % COMMIT_EVERY == 0:
-            session.commit()
-    session.commit()
     return counters
 
 
@@ -391,6 +430,7 @@ def run(
     max_details: Optional[int] = None,
     skip_seed: bool = False,
     parliamentarians_only: bool = False,
+    max_minutes: Optional[int] = None,
 ) -> None:
     _load_env_file()
     _ensure_models()
@@ -405,7 +445,12 @@ def run(
             missing = seed_missing_parliamentarians(session, client)
             logger.info("Fase 2 (parlamentares sem 2026): %s", missing)
         if not parliamentarians_only:
-            drained = drain_assets(session, client, max_details)
+            drained = drain_assets(
+                session,
+                client,
+                max_details,
+                prazo_s=max_minutes * 60 if max_minutes else None,
+            )
             logger.info("Fase 3 (patrimonio): %s", drained)
 
 
@@ -433,9 +478,16 @@ if __name__ == "__main__":
         help="So as fases 1-2 (semear); nao drena patrimonio.",
     )
 
+    parser.add_argument(
+        "--max-minutes",
+        type=int,
+        help="Teto de tempo da fase 3; o que sobrar fica para a proxima execucao.",
+    )
+
     args = parser.parse_args()
     run(
         max_details=args.max_details,
         skip_seed=args.skip_seed,
         parliamentarians_only=args.parliamentarians_only,
+        max_minutes=args.max_minutes,
     )

@@ -39,7 +39,6 @@ from mamute_scrappers.tse_crawler.parsing import (  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-COMMIT_EVERY = 200
 
 UFS = (
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS",
@@ -294,11 +293,11 @@ def run(
                         else:
                             updated += 1
                         known[tse_id] = payload.get("listing_fingerprint")
-                        # Commit parcial: carga inicial (~29k) nao pode sumir
-                        # por falha de rede na ultima listagem. O upsert e
-                        # idempotente; retomar so reescreve o que ja estava.
-                        if (inserted + updated) % COMMIT_EVERY == 0:
-                            session.commit()
+                        # Commit a cada gravacao: a proxima linha pode chamar o
+                        # TSE, e esperar a resposta com transacao aberta trava o
+                        # autovacuum e segura lock (CS-126). Tambem garante que a
+                        # carga inicial (~29k) nao some por falha de rede no fim.
+                        session.commit()
 
                     if dry_run_limit is not None and processed >= dry_run_limit:
                         _log_summary(

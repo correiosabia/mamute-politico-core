@@ -108,7 +108,7 @@ PYTHONPATH=/app
 # Timeline eleitoral (histórico + patrimônio) — semeia do JSONB local (barato,
 # mantém o resultado atualizado na apuração) e drena até 5000 detalhes de bens
 # por dia (retomável; parlamentares primeiro, depois anos mais recentes).
-50 6 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh tse-electoral-history -- /usr/local/bin/python -m mamute_scrappers.tse_crawler.electoral_history --max-details 5000 >> /proc/1/fd/1 2>> /proc/1/fd/2
+50 6 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh tse-electoral-history -- /usr/local/bin/python -m mamute_scrappers.tse_crawler.electoral_history --max-details 5000 --max-minutes 180 >> /proc/1/fd/1 2>> /proc/1/fd/2
 
 # Resultado da eleição (CS-106/CS-119): coleta os JSONs oficiais do TSE e avisa
 # quem acompanha candidatos, a cada 15 min. Antes da data do pleito a coleta sai
