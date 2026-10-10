@@ -225,9 +225,19 @@ distinguir "não discursou" de "discursou e ainda não foi analisado".
   (`share_card_cache`) ou do serviço em `OG_RENDER_URL` (POST `/render`,
   timeout de 10 s). Falha = redireciona para `MAMUTE_SHARE_FALLBACK_IMAGE`
   (sem ela, 404) e não grava cache.
+- `GET /api/s/{código}/story?rede=instagram|tiktok` (público): página que mostra
+  o card vertical (1080x1920) e explica como postar no story. É para onde vão os
+  ícones de Instagram e TikTok do e-mail: nenhum dos dois aceita link vindo de
+  fora, então a pessoa salva a imagem e posta.
+- `GET /api/s/{código}/story.png` (público): o card vertical, do cache ou do
+  `OG_RENDER_URL` com `formato: "story"`. Falha = 404 (a imagem padrão é
+  horizontal). `?baixar=1` manda como anexo.
+- `GET /api/s/icones/{rede}.png` (público): ícones do e-mail (whatsapp, x,
+  facebook, instagram, tiktok), PNG porque o Gmail não mostra SVG.
 
 Todas as tabelas são da migration `cs116a1b2c3d4`; antes dela, leitura devolve
-vazio em vez de erro.
+vazio em vez de erro. O cache por formato (`og`/`story`) é da `cs116b2c3d4e5`;
+antes dela, a imagem é desenhada a cada pedido, sem cache.
 
 ## Presença no card de Estatísticas (CS-79)
 

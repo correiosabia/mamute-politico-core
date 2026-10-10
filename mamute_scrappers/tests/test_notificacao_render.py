@@ -147,7 +147,22 @@ class TestDesignNovo:
         html = _render(report, CONFIG)
 
         assert "Compartilhar" in html
-        assert "https://mamutepolitico.com.br/api/s/Abc123XyZ0" in html
+        assert 'href="https://mamutepolitico.com.br/api/s/Abc123XyZ0/story?rede=instagram"' in html
+
+    def test_compartilhar_com_icones_das_cinco_redes(self) -> None:
+        report = self._novo()
+        report.highlights[1].share_code = "Abc123XyZ0"
+        html = _render(report, CONFIG)
+
+        for rede, nome in (
+            ("whatsapp", "WhatsApp"),
+            ("x", "X"),
+            ("facebook", "Facebook"),
+            ("instagram", "Instagram"),
+            ("tiktok", "TikTok"),
+        ):
+            assert f'src="https://mamutepolitico.com.br/api/s/icones/{rede}.png"' in html
+            assert f'alt="{nome}"' in html
 
     def test_link_do_whatsapp_leva_texto_e_link_codificados(self) -> None:
         links = share.share_links(BRANDING.app_url, "Abc123XyZ0", 'Recebi "isso" & mais.')
@@ -156,6 +171,19 @@ class TestDesignNovo:
         assert links["whatsapp"].startswith("https://wa.me/?text=")
         assert texto == 'Recebi "isso" & mais. https://mamutepolitico.com.br/api/s/Abc123XyZ0'
         assert parse_qs(urlparse(links["x"]).query)["url"][0] == links["url"]
+
+    def test_facebook_compartilha_o_link_curto(self) -> None:
+        links = share.share_links(BRANDING.app_url, "Abc123XyZ0", "")
+
+        assert links["facebook"].startswith("https://www.facebook.com/sharer/sharer.php?")
+        assert parse_qs(urlparse(links["facebook"]).query)["u"][0] == links["url"]
+
+    def test_instagram_e_tiktok_abrem_o_card_de_story(self) -> None:
+        """Nenhum dos dois aceita link por URL: a pessoa salva a imagem e posta."""
+        links = share.share_links(BRANDING.app_url, "Abc123XyZ0", "")
+
+        assert links["instagram"] == "https://mamutepolitico.com.br/api/s/Abc123XyZ0/story?rede=instagram"
+        assert links["tiktok"] == "https://mamutepolitico.com.br/api/s/Abc123XyZ0/story?rede=tiktok"
 
     def test_sem_texto_configurado_usa_o_padrao(self) -> None:
         links = share.share_links(BRANDING.app_url, "Abc123XyZ0", "")

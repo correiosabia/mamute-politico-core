@@ -63,7 +63,8 @@ it are shown and labeled as such.
 A short public link (`/api/s/{code}`) to one highlight of the e-mail report,
 stored in `share_link`. It serves preview tags and an image for messaging apps
 and sends the person to the site. The code identifies the highlight, never who
-shared it.
+shared it. A vertical story card (`/api/s/{code}/story`) serves the networks that
+do not accept links from outside (Instagram, TikTok).
 
 ### Committee
 

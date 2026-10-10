@@ -38,6 +38,9 @@ assinatura e texto padrão do compartilhamento.
 (reaproveitado entre contas e envios) e o e-mail aponta para
 `{MAMUTE_APP_URL}/api/s/{código}`. A API devolve as tags de prévia e manda a
 pessoa para o site; a imagem vem do serviço configurado em `OG_RENDER_URL`.
+Cada destaque mostra os ícones de WhatsApp, X e Facebook (abrem o app com o
+texto e o link curto) e de Instagram e TikTok (abrem o card vertical em
+`/api/s/{código}/story`, para salvar e postar no story).
 
 **Resumo curto dos discursos:** job `speech_short_summary` (cron 09:00 UTC).
 Sumário oficial de até 280 caracteres vai como está; maior, o modelo condensa o

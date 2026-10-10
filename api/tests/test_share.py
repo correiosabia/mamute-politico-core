@@ -15,7 +15,7 @@ CODE = "Abc123XyZ0"
 PNG = b"\x89PNG\r\n\x1a\nfake"
 
 
-def _make_session(*, com_tabelas: bool = True) -> Session:
+def _make_session(*, com_tabelas: bool = True, cache_sem_formato: bool = False) -> Session:
     engine = create_engine(
         "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
@@ -26,10 +26,17 @@ def _make_session(*, com_tabelas: bool = True) -> Session:
                 " title text, summary text, parliamentarian_name text, chamber text,"
                 " occurred_at date, created_at datetime default current_timestamp)"
             )
-            conn.exec_driver_sql(
-                "create table share_card_cache (code text primary key, png blob,"
-                " created_at datetime default current_timestamp)"
-            )
+            if cache_sem_formato:  # banco antes da migration do formato
+                conn.exec_driver_sql(
+                    "create table share_card_cache (code text primary key, png blob,"
+                    " created_at datetime default current_timestamp)"
+                )
+            else:
+                conn.exec_driver_sql(
+                    "create table share_card_cache (code text, formato text not null default 'og',"
+                    " png blob, created_at datetime default current_timestamp,"
+                    " primary key (code, formato))"
+                )
             conn.exec_driver_sql(
                 "insert into share_link (code, kind, item_id, title, summary, parliamentarian_name,"
                 " chamber, occurred_at) values (?, 'discurso', 7, ?, ?, 'Ana Souza', 'Câmara', '2026-10-02')",
@@ -191,3 +198,95 @@ def test_timeout_de_conexao_e_leitura_somam_dez_segundos(monkeypatch) -> None:
     share_cards._render({"title": "x"})
 
     assert sum(chamadas["timeout"]) <= 10
+
+
+class TestStory:
+    """Instagram e TikTok: o e-mail abre o card vertical para a pessoa salvar e postar."""
+
+    def test_pagina_mostra_a_imagem_e_explica_o_que_fazer(self, client: TestClient) -> None:
+        r = client.get(f"/api/s/{CODE}/story?rede=instagram")
+
+        assert r.status_code == 200
+        assert f'src="https://site.example/api/s/{CODE}/story.png"' in r.text
+        assert "story do Instagram" in r.text
+        assert f'href="https://site.example/api/s/{CODE}/story.png?baixar=1"' in r.text
+
+    def test_tiktok_e_rede_desconhecida(self, client: TestClient) -> None:
+        assert "TikTok" in client.get(f"/api/s/{CODE}/story?rede=tiktok").text
+        corpo = client.get(f"/api/s/{CODE}/story?rede=<b>").text
+        assert "<b>" not in corpo
+        assert "story" in corpo
+
+    def test_codigo_inexistente_vai_para_o_site(self, client: TestClient) -> None:
+        r = client.get("/api/s/naoexiste0/story")
+
+        assert r.status_code == 302
+        assert r.headers["location"] == "https://site.example"
+
+    def test_imagem_pede_o_formato_story_e_tem_cache_proprio(self, client, session, monkeypatch) -> None:
+        session.execute(text("insert into share_card_cache (code, png) values (:c, :p)"), {"c": CODE, "p": PNG})
+        session.commit()
+        pedidos = []
+        monkeypatch.setattr(share_cards, "_render", lambda dados: pedidos.append(dados) or b"story")
+
+        r = client.get(f"/api/s/{CODE}/story.png")
+
+        assert r.status_code == 200
+        assert r.content == b"story"
+        assert pedidos[0]["formato"] == "story"
+        assert client.get(f"/api/s/{CODE}.png").content == PNG
+        client.get(f"/api/s/{CODE}/story.png")
+        assert len(pedidos) == 1
+
+    def test_baixar_manda_como_anexo(self, client, monkeypatch) -> None:
+        monkeypatch.setattr(share_cards, "_render", lambda dados: PNG)
+
+        r = client.get(f"/api/s/{CODE}/story.png?baixar=1")
+
+        assert r.headers["content-disposition"] == 'attachment; filename="mamute-story.png"'
+
+    def test_sem_render_404_sem_imagem_padrao_horizontal(self, client, monkeypatch) -> None:
+        """A imagem padrão é horizontal: no story ficaria errada, melhor 404."""
+        monkeypatch.setenv("MAMUTE_SHARE_FALLBACK_IMAGE", "https://site.example/logo.png")
+        monkeypatch.setattr(share_cards, "_render", lambda dados: None)
+
+        assert client.get(f"/api/s/{CODE}/story.png").status_code == 404
+
+    def test_horizontal_pede_o_formato_og(self, client, monkeypatch) -> None:
+        pedidos = []
+        monkeypatch.setattr(share_cards, "_render", lambda dados: pedidos.append(dados) or PNG)
+
+        client.get(f"/api/s/{CODE}.png")
+
+        assert pedidos[0]["formato"] == "og"
+
+
+def test_cache_sem_coluna_de_formato_ainda_entrega_a_imagem(monkeypatch) -> None:
+    """O deploy sobe o código antes do alembic: sem a coluna, renderiza sem cache."""
+    s = _make_session(cache_sem_formato=True)
+    s.execute(text("insert into share_card_cache (code, png) values (:c, :p)"), {"c": CODE, "p": PNG})
+    s.commit()
+    monkeypatch.setattr(share_cards, "_render", lambda dados: b"novo")
+    main.app.dependency_overrides[get_db] = lambda: s
+    try:
+        r = TestClient(main.app, follow_redirects=False).get(f"/api/s/{CODE}/story.png")
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    assert r.content == b"novo"
+
+
+class TestIcones:
+    @pytest.mark.parametrize("rede", ["whatsapp", "x", "facebook", "instagram", "tiktok"])
+    def test_icone_de_cada_rede(self, client: TestClient, rede: str) -> None:
+        r = client.get(f"/api/s/icones/{rede}.png")
+
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
+        assert r.content.startswith(b"\x89PNG")
+        assert "immutable" in r.headers["cache-control"]
+
+    @pytest.mark.parametrize("nome", ["linkedin", "..%2F..%2Fmain"])
+    def test_rede_desconhecida_404(self, client: TestClient, nome: str) -> None:
+        assert client.get(f"/api/s/icones/{nome}.png").status_code == 404
