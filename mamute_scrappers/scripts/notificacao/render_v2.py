@@ -28,7 +28,7 @@ from .report_builder import (
     titulo_votacoes,
     url_absoluta,
 )
-from .share import share_links
+from .share import REDES, icone_url, share_links
 
 AMARELO = "#e6c54a"
 MARINHO = "#1f2b44"
@@ -106,12 +106,19 @@ def _compartilhar(item: ActivityItem, brand: EmailBranding, share_text: str) -> 
     if not item.share_code:
         return ""
     links = share_links(brand.app_url, item.share_code, share_text)
-    estilo = f"color:{AZUL};font-weight:700;text-decoration:none;"
+    # Ícone em PNG (o Gmail não mostra SVG), 96 px desenhado em 32 para tela retina.
+    icones = "".join(
+        f'<td style="padding-left:8px;"><a href="{_e(links[rede])}" style="text-decoration:none;">'
+        f'<img src="{_e(icone_url(brand.app_url, rede))}" width="32" height="32" alt="{nome}" '
+        f'style="display:block;border:0;"></a></td>'
+        for rede, nome in REDES
+    )
     return (
-        f'<div style="margin-top:12px;padding-top:10px;border-top:1px solid #eef1f6;font-size:13px;color:{CINZA};">'
-        f'Compartilhar: <a href="{_e(links["whatsapp"])}" style="{estilo}">WhatsApp</a> · '
-        f'<a href="{_e(links["x"])}" style="{estilo}">X</a> · '
-        f'<a href="{_e(links["url"])}" style="color:{CINZA};">{_e(links["url"])}</a></div>'
+        '<table cellpadding="0" cellspacing="0" style="margin-top:12px;padding-top:10px;'
+        'border-top:1px solid #eef1f6;width:100%;"><tr><td>'
+        '<table cellpadding="0" cellspacing="0"><tr>'
+        f'<td style="font-size:13px;color:{CINZA};padding-right:4px;">Compartilhar</td>{icones}'
+        '</tr></table></td></tr></table>'
     )
 
 

@@ -78,11 +78,34 @@ def origem(app_url: str) -> str:
     return f"{partes.scheme}://{partes.netloc}" if partes.netloc else app_url.rstrip("/")
 
 
+# Ordem dos ícones no e-mail: (chave em share_links, nome no alt).
+REDES = (
+    ("whatsapp", "WhatsApp"),
+    ("x", "X"),
+    ("facebook", "Facebook"),
+    ("instagram", "Instagram"),
+    ("tiktok", "TikTok"),
+)
+
+
 def share_links(app_url: str, code: str, share_text: str) -> dict[str, str]:
+    """Link de cada rede para um destaque.
+
+    WhatsApp, X e Facebook recebem o link curto (a prévia vem das tags `og:*`).
+    Instagram e TikTok não aceitam link vindo de fora: o ícone abre o card no
+    formato de story, para a pessoa salvar a imagem e postar.
+    """
     url = f"{origem(app_url)}/api/s/{code}"
     texto = (share_text or "").strip() or TEXTO_PADRAO
     return {
         "url": url,
         "whatsapp": "https://wa.me/?" + urlencode({"text": f"{texto} {url}"}, quote_via=quote),
         "x": "https://x.com/intent/post?" + urlencode({"text": texto, "url": url}, quote_via=quote),
+        "facebook": "https://www.facebook.com/sharer/sharer.php?" + urlencode({"u": url}, quote_via=quote),
+        "instagram": f"{url}/story?rede=instagram",
+        "tiktok": f"{url}/story?rede=tiktok",
     }
+
+
+def icone_url(app_url: str, rede: str) -> str:
+    return f"{origem(app_url)}/api/s/icones/{rede}.png"

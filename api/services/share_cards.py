@@ -8,6 +8,8 @@ Quem grava o link é o envio (`share_link`). Aqui só se lê:
   (`OG_RENDER_URL`, POST /render com os dados do destaque, devolve PNG).
   Sem serviço ou com falha, a prévia cai numa imagem padrão e nada é gravado:
   o link nunca quebra por causa da imagem.
+* o card de story (vertical) é o que o e-mail abre para Instagram e TikTok,
+  que não aceitam link vindo de fora: a pessoa salva a imagem e posta.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 CODE_RE = re.compile(r"^[A-Za-z0-9]{10}$")
+# "og": 1200x630 da prévia do link. "story": 1080x1920 para Instagram e TikTok.
+FORMATOS = ("og", "story")
 # (conexão, leitura): somados ficam nos 10 s que a prévia pode esperar.
 RENDER_TIMEOUT_S = (2, 8)
 
@@ -60,10 +64,11 @@ def load_share_link(db: Session, code: str) -> Optional[dict[str, Any]]:
     return dados
 
 
-def cached_png(db: Session, code: str) -> Optional[bytes]:
+def cached_png(db: Session, code: str, formato: str = "og") -> Optional[bytes]:
     try:
         row = db.execute(
-            text("SELECT png FROM share_card_cache WHERE code = :code"), {"code": code}
+            text("SELECT png FROM share_card_cache WHERE code = :code AND formato = :formato"),
+            {"code": code, "formato": formato},
         ).first()
     except SQLAlchemyError:
         db.rollback()
@@ -71,11 +76,14 @@ def cached_png(db: Session, code: str) -> Optional[bytes]:
     return bytes(row[0]) if row else None
 
 
-def store_png(db: Session, code: str, png: bytes) -> None:
+def store_png(db: Session, code: str, png: bytes, formato: str = "og") -> None:
     try:
         db.execute(
-            text("INSERT INTO share_card_cache (code, png) VALUES (:code, :png) ON CONFLICT DO NOTHING"),
-            {"code": code, "png": png},
+            text(
+                "INSERT INTO share_card_cache (code, formato, png) VALUES (:code, :formato, :png)"
+                " ON CONFLICT DO NOTHING"
+            ),
+            {"code": code, "formato": formato, "png": png},
         )
         db.commit()
     except SQLAlchemyError:
@@ -98,8 +106,8 @@ def _render(dados: dict[str, Any]) -> Optional[bytes]:
     return resp.content
 
 
-def png_for(db: Session, code: str, dados: dict[str, Any]) -> Optional[bytes]:
-    png = cached_png(db, code)
+def png_for(db: Session, code: str, dados: dict[str, Any], formato: str = "og") -> Optional[bytes]:
+    png = cached_png(db, code, formato)
     if png is not None:
         return png
     # Solta a conexão antes de esperar o render: um render travado não pode
@@ -113,8 +121,9 @@ def png_for(db: Session, code: str, dados: dict[str, Any]) -> Optional[bytes]:
             "parliamentarian_name": dados.get("parliamentarian_name"),
             "chamber": dados.get("chamber"),
             "occurred_at": dados.get("occurred_at"),
+            "formato": formato,
         }
     )
     if png is not None:
-        store_png(db, code, png)
+        store_png(db, code, png, formato)
     return png
