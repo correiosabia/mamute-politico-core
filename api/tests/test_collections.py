@@ -402,3 +402,29 @@ def test_foto_de_quem_esta_fora_da_base(client, session):
     http = client.put(url, json={"members": [{"display_name": "Beltrano", "photo_url": "http://exemplo/foto.jpg"}]})
     assert http.status_code == 422
     assert "https://" in http.json()["detail"]
+
+
+def test_quem_foi_ao_segundo_turno_nao_aparece_como_eleito(client, session):
+    """O TSE marca `e = "s"` também para quem vai ao 2º turno (Flávio, 2026).
+
+    Mesma regra de `foi_eleito` na coleta: eleito é `eleito` com a situação
+    começando por "Eleito". A situação continua indo como o TSE escreveu.
+    """
+    _base(session)
+    session.add(
+        CandidacyResult(
+            id=2, candidacy_id=101, turno=1, codigo_eleicao=1, situacao="2º turno",
+            eleito=True, votos=900000, totalizacao_final=True,
+        )
+    )
+    session.commit()
+    criada = _cria(client)
+    resp = client.put(
+        f"/api/admin/collections/{criada['id']}/members",
+        json={"members": [{"display_name": "Ana", "cpf": "11111111111", "tier": 1}]},
+    )
+
+    [ana] = resp.json()
+
+    assert ana["candidacy"]["result"]["status"] == "2º turno"
+    assert ana["candidacy"]["result"]["elected"] is False
