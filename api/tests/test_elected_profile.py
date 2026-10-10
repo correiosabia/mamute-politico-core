@@ -1,6 +1,8 @@
 """Perfil dos eleitos de 2026 no admin (CS-107)."""
 from __future__ import annotations
 
+import json
+
 import itertools
 
 import pytest
@@ -31,7 +33,7 @@ def _make_session(*, com_eleitos: bool = True) -> Session:
             "gender text, race text, education text, parliamentarian_id integer)"
         )
         conn.exec_driver_sql(
-            "create table parliamentarian (id integer primary key, type text, status text)"
+            "create table parliamentarian (id integer primary key, type text, status text, details text)"
         )
         conn.exec_driver_sql(
             "create table candidacy_result (id integer primary key autoincrement, "
@@ -86,7 +88,7 @@ def _candidato(
     genero: str | None = "MASCULINO",
     raca: str | None = "BRANCA",
     escolaridade: str | None = "SUPERIOR COMPLETO",
-    parlamentar: tuple[str, str] | None = None,
+    parlamentar: tuple[str, ...] | None = None,
     situacao: str = "Eleito",
     eleito: bool = True,
     final: bool = True,
@@ -95,11 +97,13 @@ def _candidato(
 ) -> None:
     cid = next(_ids)
     parlamentar_id = None
-    if parlamentar is not None:  # (type, status) do parlamentar vinculado
+    if parlamentar is not None:  # (type, status[, condição eleitoral na Câmara])
         parlamentar_id = 50000 + cid
+        condicao = parlamentar[2] if len(parlamentar) > 2 else None
+        detalhes = json.dumps({"ultimoStatus": {"condicaoEleitoral": condicao}}) if condicao else None
         db.execute(
-            text("insert into parliamentarian (id, type, status) values (:id, :t, :s)"),
-            {"id": parlamentar_id, "t": parlamentar[0], "s": parlamentar[1]},
+            text("insert into parliamentarian (id, type, status, details) values (:id, :t, :s, :d)"),
+            {"id": parlamentar_id, "t": parlamentar[0], "s": parlamentar[1], "d": detalhes},
         )
     db.execute(
         text(
@@ -184,11 +188,30 @@ def test_escolaridade_em_ordem_de_nivel_e_superior_completo() -> None:
     ]
 
 
+def test_deputado_reeleito_segue_o_criterio_da_camara() -> None:
+    """A Câmara conta o titular eleito em 2022 e o suplente efetivado na
+    legislatura (301 em 05/10/2026). Suplente em exercício temporário não conta,
+    e titular licenciado conta: o mandato é dele."""
+    db = _make_session()
+    _arquivo(db, "SP", DEP_FEDERAL)
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Exercício", "Titular"))
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Exercício", "Efetivado"))
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Licença", "Titular"))
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Exercício", "Suplente"))
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Exercício", "Suplente"))
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Exercício"))  # sem condição: não conta
+    _candidato(db, "SP", DEP_FEDERAL)
+    _candidato(db, "SP", DEP_FEDERAL)
+
+    camara = _uf(_casa(elected_profile(db), "camara"), "SP")
+    assert camara["perfil"]["reeleitos"] == {"eleitos": 3, "percentual": 37.5}
+
+
 def test_reeleito_e_quem_exerce_mandato_na_mesma_casa() -> None:
     db = _make_session()
     _arquivo(db, "SP", DEP_FEDERAL)
     _arquivo(db, "SP", SENADOR)
-    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Exercício"))  # reeleito
+    _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Exercício", "Titular"))  # reeleito
     _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Deputado", "Fora de exercício"))  # ex-deputado
     _candidato(db, "SP", DEP_FEDERAL)  # novato, sem vínculo
     _candidato(db, "SP", DEP_FEDERAL, parlamentar=("Senador", "Exercício"))  # senador virando deputado
