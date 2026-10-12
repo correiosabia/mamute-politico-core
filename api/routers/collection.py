@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,7 @@ try:
     from ..dependencies import get_db
     from ..security import require_ghost_admin
     from ..services import collection as svc
+    from ..services import collection_events as eventos
     from ..services import collection_suggestions as busca
     from ..services import collection_travel as viagens
     from ..services import official_agenda as agenda
@@ -28,6 +29,7 @@ except ImportError:  # execução dentro de api/
     from dependencies import get_db
     from security import require_ghost_admin
     from services import collection as svc
+    from services import collection_events as eventos
     from services import collection_suggestions as busca
     from services import collection_travel as viagens
     from services import official_agenda as agenda
@@ -35,6 +37,7 @@ except ImportError:  # execução dentro de api/
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 admin_router = APIRouter(prefix="/admin/collections", tags=["admin"])
+metrics_router = APIRouter(prefix="/admin/metrics/collections", tags=["admin"])
 
 _NAO_ENCONTRADA = "Coleção não encontrada."
 
@@ -107,6 +110,55 @@ def read_published(slug: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     if colecao is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
     return colecao
+
+
+_ID_ANONIMO = r"^[A-Za-z0-9_-]{8,64}$"
+
+
+class EventoIn(BaseModel):
+    type: str = Field(max_length=40)
+    target: Optional[str] = Field(default=None, max_length=500)
+    detail: Optional[str] = Field(default=None, max_length=500)
+    duration_ms: Optional[int] = None
+
+
+class UtmIn(BaseModel):
+    source: Optional[str] = Field(default=None, max_length=500)
+    medium: Optional[str] = Field(default=None, max_length=500)
+    campaign: Optional[str] = Field(default=None, max_length=500)
+
+
+class LoteEventosIn(BaseModel):
+    visitor: str = Field(pattern=_ID_ANONIMO)
+    session: str = Field(pattern=_ID_ANONIMO)
+    referrer: Optional[str] = Field(default=None, max_length=2000)
+    utm: UtmIn = Field(default_factory=UtmIn)
+    events: list[EventoIn] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/{slug}/events", status_code=status.HTTP_204_NO_CONTENT)
+def ingest_events(
+    slug: str, lote: LoteEventosIn, request: Request, db: Session = Depends(get_db)
+) -> Response:
+    """Eventos anônimos de leitura (CS-145). Sempre 204: o navegador não espera
+    resposta, e quem envia lixo não descobre o que foi aceito."""
+    user_agent = request.headers.get("user-agent")
+    colecao_id = None if eventos.eh_robo(user_agent) else eventos.colecao_publicada(db, slug)
+    if colecao_id is not None:
+        eventos.grava_lote(
+            db,
+            collection_id=colecao_id,
+            visitor=lote.visitor,
+            session_id=lote.session,
+            eventos=[e.model_dump() for e in lote.events],
+            user_agent=user_agent,
+            ip=eventos.ip_do_cliente(
+                request.headers.get("x-forwarded-for"), request.client.host if request.client else None
+            ),
+            referrer=lote.referrer,
+            utm=lote.utm.model_dump(),
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{slug}/travel")
@@ -346,3 +398,28 @@ def search_admin(
     if achados is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
     return achados
+
+
+# --------------------------------------------------------------------------
+# painel: aba "Na Lupa" de Métricas e Insights (CS-145)
+# --------------------------------------------------------------------------
+
+
+@metrics_router.get("")
+def metrics_list(
+    db: Session = Depends(get_db), _admin: str = Depends(require_ghost_admin)
+) -> list[dict[str, Any]]:
+    return eventos.lista_casos(db)
+
+
+@metrics_router.get("/{slug}")
+def metrics_case(
+    slug: str,
+    dias: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    dados = eventos.metricas_do_caso(db, slug, dias)
+    if dados is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NAO_ENCONTRADA)
+    return dados

@@ -128,6 +128,7 @@ def create_app() -> FastAPI:
     api_router.include_router(ghost_webhooks.router)
     api_router.include_router(admin.router)
     api_router.include_router(collection.admin_router)
+    api_router.include_router(collection.metrics_router)
     # Leitura pública de coleções publicadas: sem login, o link é compartilhável.
     api_router.include_router(collection.router)
     api_router.include_router(events.router)
