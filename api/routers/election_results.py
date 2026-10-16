@@ -31,8 +31,9 @@ except (ImportError, ValueError):
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 # Linha `pending` e envio em andamento ou travado antes do SMTP: ainda nao
-# mostra, para o modal nao aparecer antes do e-mail.
-_STATUS_VISIVEIS = ("sent", "error", "skipped_no_email")
+# mostra, para o modal nao aparecer antes do e-mail. `skipped_opt_out` = leitor
+# desativou os e-mails (CS-150), mas o aviso dentro do app continua.
+_STATUS_VISIVEIS = ("sent", "error", "skipped_no_email", "skipped_opt_out")
 
 
 class ElectionResultNoticeOut(BaseModel):

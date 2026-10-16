@@ -15,8 +15,10 @@ from .config import (
     PERIOD_DAYS,
     PERIODICIDADE_TESTE,
     default_highlight_limit,
+    get_branding,
     subject_for_periodicidade,
 )
+from .descadastro import links_descadastro
 from .mailer import send_html_email
 from .models import ProjectRecipient
 from .flags import FLAG_DESTAQUES_GERAIS, carregar_flags, emails_admin
@@ -126,7 +128,12 @@ def _process_recipient(
             return f"projeto {recipient.id}: dry-run ({recipient.email})"
 
         subject = subject_for_periodicidade(periodicidade)
-        send_html_email(html_body, recipient.email, subject)
+        send_html_email(
+            html_body,
+            recipient.email,
+            subject,
+            unsubscribe_url=_one_click(recipient),
+        )
         status = {
             "sem_selecao": STATUS_SENT_GENERAL,
             "sem_atividade": STATUS_SENT_NO_ACTIVITY,
@@ -151,6 +158,11 @@ def _process_recipient(
         session.close()
 
 
+def _one_click(recipient: ProjectRecipient) -> Optional[str]:
+    links = links_descadastro(get_branding(), recipient.email_token)
+    return links.one_click if links else None
+
+
 def _atribuir_links_curtos(session, report) -> None:
     """Código de compartilhamento de cada destaque (só o design novo mostra)."""
     casas = {fav.display_name: fav.chamber for fav in report.favorite_parliamentarians}
@@ -173,7 +185,9 @@ def resolve_recipients(
         if projeto_id is not None:
             recipient = get_recipient_by_id(session, projeto_id)
             if recipient is None:
-                raise RuntimeError(f"Projeto {projeto_id} não encontrado ou inativo.")
+                raise RuntimeError(
+                    f"Projeto {projeto_id} não encontrado, inativo ou com e-mails desativados."
+                )
             return [recipient]
         return list_recipients_for_periodicity(
             session,

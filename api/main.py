@@ -18,6 +18,7 @@ try:
         authors_proposition,
         candidacies,
         collection,
+        email_preferences,
         email_settings,
         share,
         election_results,
@@ -45,6 +46,7 @@ except ImportError:
         authors_proposition,
         candidacies,
         collection,
+        email_preferences,
         email_settings,
         share,
         election_results,
@@ -137,11 +139,15 @@ def create_app() -> FastAPI:
     api_router.include_router(email_settings.public_router)
     # Link curto do relatório por e-mail: quem recebe o compartilhamento não tem login.
     api_router.include_router(share.router)
+    # Descadastro pelo link do e-mail / botão do Gmail: sem login, vale o token do leitor.
+    api_router.include_router(email_preferences.public_router)
 
     api_router.include_router(analysis.router, dependencies=auth_dependencies)
     api_router.include_router(settings.router, dependencies=auth_dependencies)
     api_router.include_router(parliamentarians.router, dependencies=auth_dependencies)
     api_router.include_router(propositions.router, dependencies=auth_dependencies)
+    # Antes de projects.router: /projects/me/... não pode cair num /projects/{id}.
+    api_router.include_router(email_preferences.me_router, dependencies=auth_dependencies)
     api_router.include_router(projects.router, dependencies=auth_dependencies)
     api_router.include_router(authors_proposition.router, dependencies=auth_dependencies)
     api_router.include_router(amendments.router, dependencies=auth_dependencies)

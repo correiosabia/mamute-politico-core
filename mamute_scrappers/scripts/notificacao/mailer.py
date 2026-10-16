@@ -31,6 +31,7 @@ def send_html_email(
     subject: str,
     *,
     smtp: SmtpConfig | None = None,
+    unsubscribe_url: str | None = None,
 ) -> None:
     config = smtp or get_smtp_config()
     sent_at = now_local()
@@ -42,6 +43,10 @@ def send_html_email(
     msg["From"] = _format_from_header(config.from_name, config.sender)
     msg["To"] = to_address
     msg["Subject"] = str(Header(dated_subject, "utf-8"))
+    if unsubscribe_url:
+        # Botão "Cancelar inscrição" do Gmail/Yahoo: POST de um clique na API (RFC 8058).
+        msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     logger.info("Enviando e-mail para %s", to_address)

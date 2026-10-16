@@ -68,6 +68,12 @@ from mamute_scrappers.scripts.notificacao.config import (  # noqa: E402
     EmailBranding,
     get_branding,
 )
+from mamute_scrappers.scripts.notificacao.descadastro import (  # noqa: E402
+    ids_desativados,
+    link_rodape_html,
+    links_descadastro,
+    tokens_por_projeto,
+)
 from mamute_scrappers.tse_crawler.resultados_parsing import (  # noqa: E402
     CARGO_DEP_DISTRITAL,
     CARGO_DEP_ESTADUAL,
@@ -102,6 +108,8 @@ CARGOS_SEGUNDO_TURNO = frozenset({CARGO_PRESIDENTE, CARGO_GOVERNADOR})
 
 STATUS_PENDING = "pending"
 STATUS_SKIPPED_NO_EMAIL = "skipped_no_email"
+# Leitor desativou os e-mails (CS-150): o aviso continua valendo dentro do app.
+STATUS_SKIPPED_OPT_OUT = "skipped_opt_out"
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "resultado_eleicao.html"
 _OUTPUT_DIR = Path(__file__).resolve().parent / "output"
@@ -118,6 +126,7 @@ class AvisoPronto:
     disparo: str = DISPARO_COMPLETO
     tier_id: Optional[int] = None
     itens: List[dict] = field(default_factory=list)
+    email_token: Optional[str] = None
 
     def payload(self) -> dict:
         return {"turno": self.turno, "disparo": self.disparo, "itens": self.itens}
@@ -133,12 +142,14 @@ class EnvioStats:
     erros: int = 0
     sem_email: int = 0
     fora_do_recorte: int = 0
+    descadastrados: int = 0
 
     def resumo(self) -> str:
         return (
             f"flag={self.flag} prontos={self.prontos} aguardando={self.aguardando} "
             f"enviados={self.enviados} ja_enviados={self.ja_enviados} erros={self.erros} "
-            f"sem_email={self.sem_email} fora_do_recorte={self.fora_do_recorte}"
+            f"sem_email={self.sem_email} fora_do_recorte={self.fora_do_recorte} "
+            f"descadastrados={self.descadastrados}"
         )
 
 
@@ -544,6 +555,7 @@ def render_html(aviso: AvisoPronto, *, branding: EmailBranding | None = None) ->
         "{{LOGO_URL}}": html.escape(brand.logo_url),
         "{{PRIVACY_URL}}": html.escape(brand.privacy_url),
         "{{MANAGE_URL}}": html.escape(brand.manage_url),
+        "{{DESCADASTRO}}": link_rodape_html(brand, aviso.email_token),
         "{{GREETING_NAME}}": html.escape(_greeting_name(aviso.nome)),
         "{{INTRO}}": html.escape(intro),
         "{{RESULTADOS}}": tabela,
@@ -649,11 +661,13 @@ def enviar(
     if stats.flag == "off" and not ignorar_flag:
         logger.info("Flag %s desligada: nenhum aviso enviado.", FLAG_KEY)
         return stats
+    # List-Unsubscribe de cada destinatário; o `send` injetado nos testes não vê.
+    one_click_por_email: Dict[str, str] = {}
     if send is None:
         from mamute_scrappers.scripts.notificacao.mailer import send_html_email
 
         def send(body: str, to: str, subject: str) -> None:
-            send_html_email(body, to, subject)
+            send_html_email(body, to, subject, unsubscribe_url=one_click_por_email.get(to))
 
     admins = admins if admins is not None else emails_admin()
     liberados = planos_liberados(session)
@@ -665,8 +679,13 @@ def enviar(
             return True
         return stats.flag == "all" and aviso.tier_id is not None and int(aviso.tier_id) in liberados
 
+    brand = get_branding()
     for turno, disparo, prontos in _avisos_da_rodada(session, ciclo, turnos, projeto_id, stats):
+        ids = [a.projeto_id for a in prontos]
+        desativados = ids_desativados(session, ids)
+        tokens = tokens_por_projeto(session, ids)
         for aviso in prontos:
+            aviso.email_token = tokens.get(aviso.projeto_id)
             if not recebe(aviso):
                 stats.fora_do_recorte += 1
                 continue
@@ -708,6 +727,13 @@ def enviar(
                 _atualizar(session, notice["id"], email_status=STATUS_SKIPPED_NO_EMAIL)
                 stats.sem_email += 1
                 continue
+            if aviso.projeto_id in desativados:
+                _atualizar(session, notice["id"], email_status=STATUS_SKIPPED_OPT_OUT)
+                stats.descadastrados += 1
+                continue
+            links = links_descadastro(brand, aviso.email_token)
+            if links is not None:
+                one_click_por_email[email] = links.one_click
 
             periodicidade = f"eleicao_{ciclo}_t{turno}_{disparo}"
             try:

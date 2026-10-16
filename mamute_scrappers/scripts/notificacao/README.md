@@ -151,6 +151,17 @@ No JSON `tiers.detalhes`, campo `periodicidade_email`:
 
 Exemplo: tier só semanal → `["week"]`. Projeto sem tier ou sem o valor na lista **não** entra no envio (use `--include-without-tier` ou `--projeto-id` para exceções).
 
+### Descadastro (CS-150)
+
+Quem pediu para parar de receber (`projetos.emails_desativados_em` preenchida) **não entra em nenhum envio**, nem com `--projeto-id`. Vale para este relatório e para o aviso de resultado da eleição (lá o aviso fica `skipped_opt_out` e continua aparecendo dentro do app). Não mexe nas newsletters do Ghost, que têm descadastro próprio.
+
+Cada e-mail leva o `projetos.email_token` do leitor em dois lugares:
+
+- rodapé: "Parar de receber estes e-mails" → `/app/descadastro?t=<token>` (página do app, sem login, com opção de voltar a receber);
+- cabeçalho `List-Unsubscribe` + `List-Unsubscribe-Post` → `POST /api/email-preferences/unsubscribe?t=<token>` (botão "Cancelar inscrição" do Gmail, um clique).
+
+O leitor também liga e desliga em Minha conta (`/api/projects/me/email-preferences`). Antes da migration `cs150a1b2c3d4` rodar, ninguém é filtrado e o e-mail sai sem o link, como antes.
+
 ---
 
 ## Fluxo recomendado

@@ -15,6 +15,7 @@ import html
 from collections import OrderedDict
 
 from .config import EmailBranding, subject_for_periodicidade
+from .descadastro import link_rodape_html
 from .models import ActivityItem, DashboardStats, ProjectReport
 from .report_builder import (
     _PERIOD_LABELS,
@@ -284,7 +285,9 @@ def render_v2(
             f'<div style="text-align:center;font-size:13px;color:{MARINHO};padding:8px 0 16px;">{instagram}'
             f'<a href="{_e(brand.app_url)}" style="color:{MARINHO};">Abrir o painel</a> · '
             f'<a href="{_e(brand.manage_url)}" style="color:{MARINHO};">Gerenciar monitoramento</a> · '
-            f'<a href="{_e(brand.privacy_url)}" style="color:{MARINHO};">Privacidade</a></div>'
+            f'<a href="{_e(brand.privacy_url)}" style="color:{MARINHO};">Privacidade</a>'
+            + link_rodape_html(brand, report.recipient.email_token, estilo=f"color:{MARINHO};")
+            + "</div>"
         )
     )
 

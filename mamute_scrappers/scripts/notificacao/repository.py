@@ -33,6 +33,7 @@ from .activity_filters import (
     vote_on_sql,
 )
 from .dates import format_activity_date
+from .descadastro import aplicar_preferencias
 from .labels import (
     chamber_label_from_parliamentarian_type,
     extract_ementa,
@@ -97,7 +98,9 @@ def list_recipients_for_periodicity(
     projects = list(session.execute(stmt).scalars().unique().all())
 
     if periodicidade == PERIODICIDADE_TESTE:
-        recipients = [_to_recipient(project) for project in projects]
+        recipients = aplicar_preferencias(
+            session, [_to_recipient(project) for project in projects]
+        )
         logger.info(
             "%s destinatário(s) no modo teste (%s).",
             len(recipients),
@@ -128,6 +131,7 @@ def list_recipients_for_periodicity(
 
         recipients.append(_to_recipient(project))
 
+    recipients = aplicar_preferencias(session, recipients)
     logger.info(
         "%s destinatário(s) para periodicidade %s.",
         len(recipients),
@@ -140,7 +144,11 @@ def get_recipient_by_id(session: Session, projeto_id: int) -> Optional[ProjectRe
     project = session.get(Projetos, projeto_id)
     if project is None or project.deleted_at is not None:
         return None
-    return _to_recipient(project)
+    recipients = aplicar_preferencias(session, [_to_recipient(project)])
+    if not recipients:
+        logger.warning("Projeto %s pediu para não receber e-mails.", projeto_id)
+        return None
+    return recipients[0]
 
 
 def _to_recipient(project: Projetos) -> ProjectRecipient:
