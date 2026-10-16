@@ -16,6 +16,8 @@ class ProjectRecipient:
     nome: str
     cliente: Optional[str] = None
     tier_id: Optional[int] = None
+    # Link de descadastro (CS-150); None antes da migration ou sem token.
+    email_token: Optional[str] = None
 
 
 @dataclass(frozen=True)

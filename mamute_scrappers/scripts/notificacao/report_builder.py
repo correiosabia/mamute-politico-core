@@ -25,6 +25,7 @@ from .flags import (
     FLAG_DESTAQUES_GERAIS,
     FlagSnapshot,
 )
+from .descadastro import link_rodape_html
 from .models import (
     ActivityItem,
     DashboardStats,
@@ -302,6 +303,7 @@ def render_report_html(
         "{{LOGO_URL}}": html.escape(brand.logo_url),
         "{{PRIVACY_URL}}": html.escape(brand.privacy_url),
         "{{MANAGE_URL}}": html.escape(brand.manage_url),
+        "{{DESCADASTRO}}": link_rodape_html(brand, report.recipient.email_token),
         "{{GREETING_NAME}}": html.escape(_greeting_name(report.recipient.nome)),
         "{{INTRO}}": intro,
         "{{TEST_NOTICE}}": test_notice,

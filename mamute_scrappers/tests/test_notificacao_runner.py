@@ -132,7 +132,7 @@ class TestStatus:
             runner, "log_send_attempt", lambda session, **k: registro.status.append(k["status"])
         )
         monkeypatch.setattr(runner, "render_report_html", lambda *a, **k: "<html></html>")
-        monkeypatch.setattr(runner, "send_html_email", lambda html, to, subject: registro.enviados.append(to))
+        monkeypatch.setattr(runner, "send_html_email", lambda html, to, subject, **k: registro.enviados.append(to))
         return registro
 
     def _processar(self, contexto=None) -> None:

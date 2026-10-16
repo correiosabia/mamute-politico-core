@@ -239,6 +239,24 @@ Todas as tabelas são da migration `cs116a1b2c3d4`; antes dela, leitura devolve
 vazio em vez de erro. O cache por formato (`og`/`story`) é da `cs116b2c3d4e5`;
 antes dela, a imagem é desenhada a cada pedido, sem cache.
 
+## Descadastro dos e-mails do Mamute (CS-150)
+
+Um interruptor por leitor (`projetos.emails_desativados_em`, NULL = recebe) para
+o relatório periódico e o aviso de resultado da eleição. Não mexe nas
+newsletters do Ghost.
+
+- `GET`/`PUT /api/projects/me/email-preferences` (logado): `{recebe}`; responde
+  `{recebe, email_mascarado}`. É o interruptor da Minha conta.
+- `POST /api/email-preferences/unsubscribe?t=<email_token>` (público): link do
+  rodapé e botão "Cancelar inscrição" do Gmail (`List-Unsubscribe-Post`, RFC
+  8058; o corpo é ignorado). Só POST: antivírus e prévia de link abrem GETs
+  sozinhos. Repetir não muda a data do primeiro pedido.
+- `POST /api/email-preferences/resubscribe?t=<email_token>` (público): voltar a
+  receber pela mesma página.
+
+Token inexistente ou de conta apagada = 404 com texto de tela. As colunas são da
+migration `cs150a1b2c3d4`; antes dela, os quatro respondem 503.
+
 ## Presença no card de Estatísticas (CS-79)
 
 `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve
