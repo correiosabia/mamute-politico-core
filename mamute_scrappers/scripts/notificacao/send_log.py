@@ -38,40 +38,53 @@ def log_send_attempt(
     stats: Optional[dict[str, Any]] = None,
     period_start: Optional[date] = None,
     period_end: Optional[date] = None,
+    message_id: Optional[str] = None,
 ) -> None:
-    try:
-        session.execute(
-            text(
-                """
-                INSERT INTO email_send_log
-                    (projeto_id, email, periodicidade, status, detail,
-                     subject, stats, period_start, period_end)
-                VALUES
-                    (:projeto_id, :email, :periodicidade, :status, :detail,
-                     :subject, :stats, :period_start, :period_end)
-                """
-            ),
-            {
-                "projeto_id": projeto_id,
-                "email": email,
-                "periodicidade": periodicidade,
-                "status": status,
-                "detail": detail,
-                "subject": subject,
-                "stats": json.dumps(stats) if stats is not None else None,
-                "period_start": period_start,
-                "period_end": period_end,
-            },
-        )
-        session.commit()
-    except Exception:  # noqa: BLE001 — log não pode quebrar o envio
-        logger.warning(
-            "Não foi possível registrar em email_send_log (projeto %s, %s).",
-            projeto_id,
-            status,
-            exc_info=True,
-        )
+    params = {
+        "projeto_id": projeto_id,
+        "email": email,
+        "periodicidade": periodicidade,
+        "status": status,
+        "detail": detail,
+        "subject": subject,
+        "stats": json.dumps(stats) if stats is not None else None,
+        "period_start": period_start,
+        "period_end": period_end,
+    }
+    # message_id (CS-148) liga a abertura ao envio. O deploy sobe o código antes
+    # da migration: sem a coluna, grava a linha sem ele em vez de perder o log.
+    tentativas = [True, False] if message_id else [False]
+    for com_message_id in tentativas:
         try:
-            session.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+            _insert(session, params, message_id if com_message_id else None)
+            return
+        except Exception:  # noqa: BLE001 — log não pode quebrar o envio
+            try:
+                session.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+    logger.warning(
+        "Não foi possível registrar em email_send_log (projeto %s, %s).",
+        projeto_id,
+        status,
+        exc_info=True,
+    )
+
+
+def _insert(session: Session, params: dict[str, Any], message_id: Optional[str]) -> None:
+    colunas = (
+        "projeto_id, email, periodicidade, status, detail, "
+        "subject, stats, period_start, period_end"
+    )
+    valores = (
+        ":projeto_id, :email, :periodicidade, :status, :detail, "
+        ":subject, :stats, :period_start, :period_end"
+    )
+    if message_id:
+        colunas += ", message_id"
+        valores += ", :message_id"
+        params = {**params, "message_id": message_id}
+    session.execute(
+        text(f"INSERT INTO email_send_log ({colunas}) VALUES ({valores})"), params
+    )
+    session.commit()

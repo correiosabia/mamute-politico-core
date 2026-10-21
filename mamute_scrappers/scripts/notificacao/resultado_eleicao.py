@@ -114,7 +114,7 @@ STATUS_SKIPPED_OPT_OUT = "skipped_opt_out"
 _TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "resultado_eleicao.html"
 _OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
-SendFn = Callable[[str, str, str], None]  # (html, to, subject)
+SendFn = Callable[[str, str, str], Optional[str]]  # (html, to, subject) -> Message-ID
 
 
 @dataclass
@@ -664,10 +664,20 @@ def enviar(
     # List-Unsubscribe de cada destinatário; o `send` injetado nos testes não vê.
     one_click_por_email: Dict[str, str] = {}
     if send is None:
-        from mamute_scrappers.scripts.notificacao.mailer import send_html_email
+        from mamute_scrappers.scripts.notificacao.mailer import (
+            TAG_MAMUTE,
+            TAG_RESULTADO_ELEICAO,
+            send_html_email,
+        )
 
-        def send(body: str, to: str, subject: str) -> None:
-            send_html_email(body, to, subject, unsubscribe_url=one_click_por_email.get(to))
+        def send(body: str, to: str, subject: str) -> Optional[str]:
+            return send_html_email(
+                body,
+                to,
+                subject,
+                unsubscribe_url=one_click_por_email.get(to),
+                tags=(TAG_MAMUTE, TAG_RESULTADO_ELEICAO),
+            )
 
     admins = admins if admins is not None else emails_admin()
     liberados = planos_liberados(session)
@@ -737,7 +747,7 @@ def enviar(
 
             periodicidade = f"eleicao_{ciclo}_t{turno}_{disparo}"
             try:
-                send(render_html(aviso), email, subject)
+                message_id = send(render_html(aviso), email, subject)
             except Exception as exc:  # noqa: BLE001 — um e-mail nao derruba os outros
                 logger.warning("Falha ao enviar aviso ao projeto %s: %s", aviso.projeto_id, exc)
                 _atualizar(
@@ -767,6 +777,7 @@ def enviar(
                 session, projeto_id=aviso.projeto_id, email=email,
                 periodicidade=periodicidade, status=STATUS_SENT, subject=subject,
                 stats={"candidatos": len(aviso.itens)},
+                message_id=message_id,
             )
             stats.enviados += 1
 
