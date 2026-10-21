@@ -90,6 +90,9 @@ cp mamute_scrappers/.env.example mamute_scrappers/.env
 | `MAMUTE_PRIVACY_URL` | `/privacidade` | Link política de privacidade |
 | `MAMUTE_EMAIL_MANAGE_URL` | `/app` | Link “gerenciar monitoramento” |
 | `SQLALCHEMY_ECHO` | `0` | `1` para log SQL (debug) |
+| `MAILGUN_API_KEY` | vazio | Chave privada da API do Mailgun, só para ler as aberturas (CS-148). Sem ela o job de aberturas não roda |
+| `MAILGUN_DOMAIN` | domínio do remetente | Domínio consultado na API de eventos |
+| `MAILGUN_API_BASE` | `https://api.mailgun.net/v3` | Trocar para `https://api.eu.mailgun.net/v3` em conta na UE |
 
 ### Exemplo completo de `mamute_scrappers/.env`
 
@@ -161,6 +164,14 @@ Cada e-mail leva o `projetos.email_token` do leitor em dois lugares:
 - cabeçalho `List-Unsubscribe` + `List-Unsubscribe-Post` → `POST /api/email-preferences/unsubscribe?t=<token>` (botão "Cancelar inscrição" do Gmail, um clique).
 
 O leitor também liga e desliga em Minha conta (`/api/projects/me/email-preferences`). Antes da migration `cs150a1b2c3d4` rodar, ninguém é filtrado e o e-mail sai sem o link, como antes.
+
+### Abertura dos e-mails (CS-148)
+
+O relatório e o aviso de resultado da eleição saem com rastreio de abertura do Mailgun **ligado só na mensagem** (`X-Mailgun-Track-Opens: yes`, clique desligado) e com as tags `mamute` + `mamute-relatorio` ou `mamute-resultado-eleicao`. O rastreio do domínio continua desligado: ligá-lo valeria também para o magic link do Ghost. A newsletter do Ghost tem tags próprias (`bulk-email`/`ghost-email`), então os números não se misturam.
+
+O mailer põe um `Message-ID` próprio em cada e-mail e o envio grava esse id em `email_send_log.message_id`. O job `python -m mamute_scrappers.scripts.notificacao.aberturas` (cron de hora em hora, minuto 37) lê na API de eventos do Mailgun os `opened` da tag `mamute` das últimas 26h e grava uma linha por mensagem aberta em `email_aberturas`. O Mailgun guarda só cerca de 5 dias de eventos: o histórico é o nosso banco. A aba E-mails do painel junta as duas tabelas e mostra a % de abertura média e a do último envio.
+
+Abertura por pixel é aproximada: o Apple Mail baixa a imagem sozinho (infla) e quem bloqueia imagens não conta (subconta). Serve para comparar envios entre si. Só conta a partir do deploy; envio sem `message_id` fica fora da média.
 
 ---
 

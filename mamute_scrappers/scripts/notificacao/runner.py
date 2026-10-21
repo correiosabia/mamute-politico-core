@@ -19,7 +19,7 @@ from .config import (
     subject_for_periodicidade,
 )
 from .descadastro import links_descadastro
-from .mailer import send_html_email
+from .mailer import TAG_MAMUTE, TAG_RELATORIO, send_html_email
 from .models import ProjectRecipient
 from .flags import FLAG_DESTAQUES_GERAIS, carregar_flags, emails_admin
 from .geral import build_general_highlights
@@ -128,11 +128,12 @@ def _process_recipient(
             return f"projeto {recipient.id}: dry-run ({recipient.email})"
 
         subject = subject_for_periodicidade(periodicidade)
-        send_html_email(
+        message_id = send_html_email(
             html_body,
             recipient.email,
             subject,
             unsubscribe_url=_one_click(recipient),
+            tags=(TAG_MAMUTE, TAG_RELATORIO),
         )
         status = {
             "sem_selecao": STATUS_SENT_GENERAL,
@@ -144,6 +145,7 @@ def _process_recipient(
             stats=report_stats,
             period_start=report.range_start,
             period_end=report.range_end,
+            message_id=message_id,
         )
         return f"projeto {recipient.id}: enviado para {recipient.email}"
     except Exception as exc:
