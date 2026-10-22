@@ -23,6 +23,9 @@ Regras (todas aqui, nenhuma na tela):
    para aquela cidade naquele dia, quantos vão num dia típico e quantos da
    lista seriam esperados se a escolha fosse ao acaso (hipergeométrica). Sem
    isso, cinco pessoas em São Paulo no mesmo dia pode ser só rotina.
+7. CONTROLE POR PARTIDO. A mesma conta repetida só entre parlamentares dos
+   partidos de quem está no encontro: separa "evento do partido" de "grupo da
+   lista". Usa o partido ATUAL do cadastro (troca de legenda não é refeita).
 """
 
 from __future__ import annotations
@@ -234,6 +237,7 @@ class _LinhaDeBase:
         self.dias: dict[tuple[str, date, str], set[int]] = defaultdict(set)
         self.dias_ativos: dict[str, set[date]] = defaultdict(set)
         self.viajantes: dict[str, set[int]] = defaultdict(set)
+        self.partido: dict[int, str] = {}
         self._tipico: dict[tuple[str, str], float] = {}
 
     def tipico(self, casa: str, cidade: str) -> float:
@@ -251,6 +255,7 @@ def _linha_de_base(db: Session, ano_corte: int) -> _LinhaDeBase:
         return guardado[1]
     parls = {int(p.id): p for p in db.execute(select(Parliamentarian)).scalars()}
     base = _LinhaDeBase()
+    base.partido = {pid: (p.party or "").strip().upper() for pid, p in parls.items() if (p.party or "").strip()}
     linhas = db.execute(
         select(
             ParliamentaryExpense.parliamentarian_id,
@@ -289,8 +294,9 @@ def _cauda_hipergeometrica(k: int, populacao: int, marcados: int, sorteados: int
 
 
 def _contexto(
-    base: _LinhaDeBase, casa: str, dia: date, cidade: str, membros_casa: set[int], na_lista: int
+    base: _LinhaDeBase, casa: str, dia: date, cidade: str, membros_casa: set[int], presentes: set[int]
 ) -> Optional[dict[str, Any]]:
+    na_lista = len(presentes)
     if len(base.viajantes.get(casa, ())) < BASE_MINIMA:
         return None
     viajantes = len(base.dias.get((casa, dia, cidade), ())) or na_lista
@@ -303,6 +309,34 @@ def _contexto(
         "listed": na_lista,
         "typical_day": base.tipico(casa, cidade),
         "expected": round(viajantes * marcados / populacao, 2) if populacao else None,
+        "p_value": p,
+        "unusual": p < P_INCOMUM,
+        "party": _contexto_partido(base, casa, dia, cidade, membros_casa, presentes),
+    }
+
+
+def _contexto_partido(
+    base: _LinhaDeBase, casa: str, dia: date, cidade: str, membros_casa: set[int], presentes: set[int]
+) -> Optional[dict[str, Any]]:
+    """A mesma conta, só entre parlamentares dos partidos de quem está no encontro."""
+
+    partidos = sorted({base.partido[p] for p in presentes if p in base.partido})
+    if not partidos:
+        return None
+    do_partido = {p for p, sigla in base.partido.items() if sigla in partidos}
+    populacao = len(base.viajantes.get(casa, set()) & do_partido)
+    marcados = len(membros_casa & base.viajantes.get(casa, set()) & do_partido)
+    no_dia = base.dias.get((casa, dia, cidade), set()) & do_partido
+    na_lista = len(presentes & do_partido)
+    viajantes = len(no_dia) or na_lista
+    if populacao < na_lista or populacao == 0:
+        return None
+    p = _cauda_hipergeometrica(na_lista, populacao, marcados, viajantes)
+    return {
+        "parties": partidos,
+        "travelers": viajantes,
+        "others": len(no_dia - membros_casa),
+        "expected": round(viajantes * marcados / populacao, 2),
         "p_value": p,
         "unusual": p < P_INCOMUM,
     }
@@ -407,6 +441,7 @@ def travel_overlaps(db: Session, collection_id: int) -> Optional[dict[str, Any]]
     for parl_id, (m, _p) in membro_por_parl.items():
         if int(m.id) in casa_do_parl:
             membros_por_casa[casa_do_parl[int(m.id)]].add(parl_id)
+    parl_do_membro = {int(m.id): parl_id for parl_id, (m, _p) in membro_por_parl.items()}
     for (dia, cidade), pessoas in por_cidade.items():
         if _distintos(pessoas) > 1:
             casas = {casa_do_parl.get(p["member_id"]) for p in pessoas}
@@ -414,7 +449,8 @@ def travel_overlaps(db: Session, collection_id: int) -> Optional[dict[str, Any]]
             # Câmara (data de emissão) e Senado (data do voo) não se comparam: só casa única.
             if base is not None and len(casas) == 1 and None not in casas:
                 casa = casas.pop()
-                contexto = _contexto(base, casa, dia, cidade, membros_por_casa[casa], _distintos(pessoas))
+                presentes = {parl_do_membro[p["member_id"]] for p in pessoas}
+                contexto = _contexto(base, casa, dia, cidade, membros_por_casa[casa], presentes)
             eventos.append(
                 {"kind": "same_city", "date": dia.isoformat(), "place": cidade, "detail": None,
                  "people": pessoas, "also_same_flight": (dia, cidade) in voos_vistos, "context": contexto}

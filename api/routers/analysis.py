@@ -7,12 +7,16 @@ from typing import Dict, List, Literal, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 try:
     # Execução como pacote (api.routers.analysis).
     from ..dependencies import get_db
+    from .projects import (
+        _current_legislature_range,
+        _last_three_months_range_sao_paulo,
+    )
     from ..db.models import (
         Parliamentarian,
         SpeechesTranscript,
@@ -22,6 +26,10 @@ try:
 except (ImportError, ValueError):
     # Execução local dentro de api/ sem reconhecimento de pacote.
     from dependencies import get_db
+    from routers.projects import (
+        _current_legislature_range,
+        _last_three_months_range_sao_paulo,
+    )
     from db.models import (
         Parliamentarian,
         SpeechesTranscript,
@@ -30,6 +38,7 @@ except (ImportError, ValueError):
     )
 
 AnalysisType = Literal["spacy", "chatgpt"]
+TermsWindow = Literal["last_3_months", "legislature"]
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -82,6 +91,39 @@ class SpeechAnalysisSummaryOut(BaseModel):
     entities_count: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SpeechTermOut(BaseModel):
+    """Palavra-chave principal somada sobre os discursos da janela."""
+
+    term: str
+    frequency: int
+    rank: int
+    speeches: int
+
+
+class ParliamentarianSpeechTermsOut(BaseModel):
+    """Temas dos discursos de um parlamentar numa janela de tempo.
+
+    `speeches_count` conta todos os discursos da janela e `speeches_analyzed`
+    so os que tem palavra-chave principal: a tela precisa distinguir "nao
+    discursou" de "discursou e ainda nao foi analisado".
+    """
+
+    window: TermsWindow
+    date_from: date_type
+    date_to: date_type
+    speeches_count: int
+    speeches_analyzed: int
+    terms: List[SpeechTermOut]
+
+
+def _terms_window_range(window: TermsWindow) -> tuple[date_type, date_type]:
+    """Mesmas janelas do card de estatisticas, para os numeros baterem."""
+    if window == "legislature":
+        return _current_legislature_range()
+    range_start, range_end, _, _ = _last_three_months_range_sao_paulo()
+    return range_start, range_end
 
 
 @router.get("/{speech_id}", response_model=SpeechAnalysisOut)
@@ -311,6 +353,116 @@ def list_parliamentarian_speech_analysis(
         )
 
     return response
+
+
+@router.get(
+    "/parliamentarian/{code}/terms",
+    response_model=ParliamentarianSpeechTermsOut,
+)
+def list_parliamentarian_speech_terms(
+    code: int,
+    *,
+    db: Session = Depends(get_db),
+    window: TermsWindow = Query(
+        "legislature",
+        description="Janela dos discursos: ultimos 3 meses ou legislatura vigente.",
+    ),
+    limit: int = Query(
+        300,
+        ge=1,
+        le=1000,
+        description="Quantidade maxima de termos, dos mais frequentes para os menos.",
+    ),
+) -> ParliamentarianSpeechTermsOut:
+    """Soma a palavra-chave principal de cada discurso da janela.
+
+    A listagem paginada para em 100 discursos, entao a nuvem nunca via a
+    legislatura de quem discursa muito. Aqui a soma e feita no banco e volta
+    so o resultado. Os termos voltam crus: stopwords e termos excluidos sao
+    aplicados por quem consome, com as listas da tela de configuracoes.
+    """
+    date_from, date_to = _terms_window_range(window)
+
+    speeches_in_window = (
+        select(SpeechesTranscript.id)
+        .join(
+            Parliamentarian,
+            SpeechesTranscript.parliamentarian_id == Parliamentarian.id,
+        )
+        .where(
+            Parliamentarian.parliamentarian_code == code,
+            SpeechesTranscript.date >= date_from,
+            SpeechesTranscript.date <= date_to,
+        )
+    )
+    speeches_count = int(
+        db.execute(
+            select(func.count()).select_from(speeches_in_window.subquery())
+        ).scalar_one()
+    )
+
+    # Mesmo criterio da listagem: entre as palavras marcadas como principais,
+    # vale a de menor rank (empate decidido pelo id para ser deterministico).
+    primary = (
+        select(
+            SpeechesTranscriptsKeyword.term,
+            SpeechesTranscriptsKeyword.keyword,
+            SpeechesTranscriptsKeyword.frequency,
+            SpeechesTranscriptsKeyword.rank,
+            func.row_number()
+            .over(
+                partition_by=SpeechesTranscriptsKeyword.speeches_transcripts_id,
+                order_by=(
+                    SpeechesTranscriptsKeyword.rank.asc(),
+                    SpeechesTranscriptsKeyword.id.asc(),
+                ),
+            )
+            .label("position"),
+        )
+        .where(
+            SpeechesTranscriptsKeyword.is_primary.is_(True),
+            SpeechesTranscriptsKeyword.speeches_transcripts_id.in_(speeches_in_window),
+        )
+        .subquery()
+    )
+    first_primary = select(primary).where(primary.c.position == 1).subquery()
+
+    speeches_analyzed = int(
+        db.execute(select(func.count()).select_from(first_primary)).scalar_one()
+    )
+
+    # A tela usa `term` e cai para `keyword` quando ele vem vazio.
+    term_expr = func.coalesce(func.nullif(first_primary.c.term, ""), first_primary.c.keyword)
+    frequency_sum = func.coalesce(func.sum(first_primary.c.frequency), 0)
+    rows = db.execute(
+        select(
+            term_expr.label("term"),
+            frequency_sum.label("frequency"),
+            func.min(first_primary.c.rank).label("rank"),
+            func.count().label("speeches"),
+        )
+        .group_by(term_expr)
+        .order_by(frequency_sum.desc(), func.min(first_primary.c.rank).asc(), term_expr.asc())
+        .limit(limit)
+    ).all()
+
+    return ParliamentarianSpeechTermsOut(
+        window=window,
+        date_from=date_from,
+        date_to=date_to,
+        speeches_count=speeches_count,
+        speeches_analyzed=speeches_analyzed,
+        terms=[
+            SpeechTermOut(
+                term=row.term,
+                frequency=int(row.frequency),
+                rank=int(row.rank),
+                speeches=int(row.speeches),
+            )
+            for row in rows
+            if row.term
+        ],
+    )
 
 
 __all__ = ["router"]

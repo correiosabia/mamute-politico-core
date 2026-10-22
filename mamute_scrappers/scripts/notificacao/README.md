@@ -14,7 +14,38 @@ Módulo standalone que envia relatórios HTML aos projetos cadastrados em `proje
 | Cabeçalho | Logo Mamute, saudação (primeiro nome do projeto, antes do `_`) |
 | Parlamentares monitorados | Chips só dos parlamentares que aparecem nos **destaques** do período (não lista todos os favoritos) |
 | Resumo do período | Cards: proposições, votações, discursos + intervalo de datas |
-| Destaques recentes | Atividades agrupadas por parlamentar; **ementa** da proposição quando existir; discursos com link da **tramitação** vinculada (`speeches_transcripts_proposition`) ou, se não houver, link direto do discurso |
+| Destaques recentes | Atividades agrupadas por parlamentar; **ementa** da proposição (`summary`, cortada na frase); discursos com o **resumo curto** (`speech_short_summary`) e link da **tramitação** vinculada ou do discurso; **emendas** que entraram na base no período |
+
+### Blocos que dependem de flag ou configuração (CS-116/133/134)
+
+O registro das flags mora no app (`ui/src/lib/featureFlags.ts`); o envio lê o
+estado com a mesma regra da tela (`flags.py`): `admins` = só e-mails de
+`MAMUTE_ADMIN_EMAILS`; `all` = admins + contas cujo plano tem a flag em modo
+`liberado`. Estados lidos uma vez por envio. Tudo desligado = e-mail de sempre.
+
+| Flag | O que muda |
+|------|------------|
+| `email_destaques_gerais` | Conta sem parlamentar selecionado ou sem atividade deixa de ser pulada: recebe os **destaques gerais** (`geral.py`: últimas votações nominais, uma por proposição, com a casa e o placar; até 8 temas dos discursos, com os filtros da nuvem). Sem votação na quinzena, mostra as últimas registradas e diz isso. Status `sent_general` / `sent_no_activity` |
+| `email_balanco` | Balanço de **todos** os parlamentares selecionados, inclusive quem não teve atividade ("Sem atividade registrada nesta quinzena") |
+| `email_convite_assinatura` | Botão "Assine o Mamute Completo" (link vem de `subscribe_url`) |
+| `email_design_novo` | Template novo (`render_v2.py`): fundo amarelo, cards brancos, linha **Compartilhar** em cada destaque |
+
+Peças editáveis no Admin (tabela `email_settings`, chave vazia = bloco some):
+banner do topo e rodapé de patrocínio (imagem + link), Instagram, link de
+assinatura e texto padrão do compartilhamento.
+
+**Compartilhar:** o envio grava em `share_link` um código por destaque
+(reaproveitado entre contas e envios) e o e-mail aponta para
+`{MAMUTE_APP_URL}/api/s/{código}`. A API devolve as tags de prévia e manda a
+pessoa para o site; a imagem vem do serviço configurado em `OG_RENDER_URL`.
+Cada destaque mostra os ícones de WhatsApp, X e Facebook (abrem o app com o
+texto e o link curto) e de Instagram e TikTok (abrem o card vertical em
+`/api/s/{código}/story`, para salvar e postar no story).
+
+**Resumo curto dos discursos:** job `speech_short_summary` (cron 09:00 UTC).
+Sumário oficial de até 280 caracteres vai como está; maior, o modelo condensa o
+próprio sumário; sem sumário, resume o começo da transcrição. Falha do modelo
+deixa o discurso sem resumo, com o sumário cortado de antes.
 
 ---
 
@@ -59,6 +90,9 @@ cp mamute_scrappers/.env.example mamute_scrappers/.env
 | `MAMUTE_PRIVACY_URL` | `/privacidade` | Link política de privacidade |
 | `MAMUTE_EMAIL_MANAGE_URL` | `/app` | Link “gerenciar monitoramento” |
 | `SQLALCHEMY_ECHO` | `0` | `1` para log SQL (debug) |
+| `MAILGUN_API_KEY` | vazio | Chave privada da API do Mailgun, só para ler as aberturas (CS-148). Sem ela o job de aberturas não roda |
+| `MAILGUN_DOMAIN` | domínio do remetente | Domínio consultado na API de eventos |
+| `MAILGUN_API_BASE` | `https://api.mailgun.net/v3` | Trocar para `https://api.eu.mailgun.net/v3` em conta na UE |
 
 ### Exemplo completo de `mamute_scrappers/.env`
 
@@ -119,6 +153,25 @@ No JSON `tiers.detalhes`, campo `periodicidade_email`:
 ```
 
 Exemplo: tier só semanal → `["week"]`. Projeto sem tier ou sem o valor na lista **não** entra no envio (use `--include-without-tier` ou `--projeto-id` para exceções).
+
+### Descadastro (CS-150)
+
+Quem pediu para parar de receber (`projetos.emails_desativados_em` preenchida) **não entra em nenhum envio**, nem com `--projeto-id`. Vale para este relatório e para o aviso de resultado da eleição (lá o aviso fica `skipped_opt_out` e continua aparecendo dentro do app). Não mexe nas newsletters do Ghost, que têm descadastro próprio.
+
+Cada e-mail leva o `projetos.email_token` do leitor em dois lugares:
+
+- rodapé: "Parar de receber estes e-mails" → `/app/descadastro?t=<token>` (página do app, sem login, com opção de voltar a receber);
+- cabeçalho `List-Unsubscribe` + `List-Unsubscribe-Post` → `POST /api/email-preferences/unsubscribe?t=<token>` (botão "Cancelar inscrição" do Gmail, um clique).
+
+O leitor também liga e desliga em Minha conta (`/api/projects/me/email-preferences`). Antes da migration `cs150a1b2c3d4` rodar, ninguém é filtrado e o e-mail sai sem o link, como antes.
+
+### Abertura dos e-mails (CS-148)
+
+O relatório e o aviso de resultado da eleição saem com rastreio de abertura do Mailgun **ligado só na mensagem** (`X-Mailgun-Track-Opens: yes`, clique desligado) e com as tags `mamute` + `mamute-relatorio` ou `mamute-resultado-eleicao`. O rastreio do domínio continua desligado: ligá-lo valeria também para o magic link do Ghost. A newsletter do Ghost tem tags próprias (`bulk-email`/`ghost-email`), então os números não se misturam.
+
+O mailer põe um `Message-ID` próprio em cada e-mail e o envio grava esse id em `email_send_log.message_id`. O job `python -m mamute_scrappers.scripts.notificacao.aberturas` (cron de hora em hora, minuto 37) lê na API de eventos do Mailgun os `opened` da tag `mamute` das últimas 26h e grava uma linha por mensagem aberta em `email_aberturas`. O Mailgun guarda só cerca de 5 dias de eventos: o histórico é o nosso banco. A aba E-mails do painel junta as duas tabelas e mostra a % de abertura média e a do último envio.
+
+Abertura por pixel é aproximada: o Apple Mail baixa a imagem sozinho (infla) e quem bloqueia imagens não conta (subconta). Serve para comparar envios entre si. Só conta a partir do deploy; envio sem `message_id` fica fora da média.
 
 ---
 

@@ -10,13 +10,18 @@ Brasil e por UF.
   (`candidacy.gender`/`race`/`education`, CS-63), porque o arquivo de
   resultado do TSE não traz esses campos. O cruzamento é pelo sequencial do
   candidato (`sqcand` = `tse_candidate_id`), feito na coleta.
-- **Reeleito (CS-120)** = eleito para a mesma casa em que exerce mandato hoje:
-  a candidatura aponta (`candidacy.parliamentarian_id`) para parlamentar com
-  `status = 'Exercício'` do mesmo tipo (Deputado na Câmara, Senador no
-  Senado). Suplente em exercício conta; deputado eleito senador não. O campo
-  `st_REELEICAO` do TSE não serve: vem `false` para todo mundo em 2026.
-  Deputados casam por CPF; senadores, por nome (a base não tem o CPF deles).
-  "Em exercício hoje" vale até a posse de 01/02/2027.
+- **Reeleito (CS-120)** = eleito de novo para a casa onde tem mandato. A
+  candidatura aponta (`candidacy.parliamentarian_id`) para parlamentar do
+  mesmo tipo (Deputado na Câmara, Senador no Senado); deputado eleito senador
+  não conta. O campo `st_REELEICAO` do TSE não serve: vem `false` para todo
+  mundo em 2026. Deputados casam por CPF; senadores, por nome.
+  - **Câmara:** mesmo critério da própria Câmara (301 em 05/10/2026): titular
+    eleito em 2022 ou suplente efetivado, pela `condicaoEleitoral` da API da
+    Câmara (`Titular`/`Efetivado`, em `details.ultimoStatus`). Suplente em
+    exercício temporário não conta; titular licenciado conta. Até 10/10 a
+    regra era "em exercício hoje", que contava 3 suplentes a mais (304) e
+    dependia de um `status` que a coleta não atualiza para quem sai.
+  - **Senado:** `status = 'Exercício'` (bate com o Senado: 14 reeleitos).
 - **Nunca parcial.** Uma UF só entra quando o arquivo dela está com a
   totalização encerrada (`tse_result_file.totalizacao_final`), e o total do
   Brasil só aparece com as 27 encerradas.
@@ -146,9 +151,11 @@ def _eleitos(db: Session, ano: int) -> dict[tuple[int, str], list[Linha]]:
             """
             SELECT c.office_code AS cargo, UPPER(TRIM(c.state)) AS uf,
                    c.gender AS genero, c.race AS cor_raca, c.education AS escolaridade,
-                   CASE WHEN p.status = 'Exercício'
-                         AND ((c.office_code = 6 AND p.type = 'Deputado')
-                              OR (c.office_code = 5 AND p.type = 'Senador'))
+                   CASE WHEN (c.office_code = 6 AND p.type = 'Deputado'
+                              AND p.details -> 'ultimoStatus' ->> 'condicaoEleitoral'
+                                  IN ('Titular', 'Efetivado'))
+                          OR (c.office_code = 5 AND p.type = 'Senador'
+                              AND p.status = 'Exercício')
                         THEN 1 ELSE 0 END AS reeleito,
                    COUNT(*) AS n
             FROM candidacy_result cr

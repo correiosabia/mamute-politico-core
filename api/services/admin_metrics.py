@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from datetime import date, datetime, time as dt_time, timedelta
 from datetime import timezone as dt_timezone
@@ -758,6 +759,95 @@ def _email_history(db: Session, limit: int) -> Optional[list[dict[str, Any]]]:
     return out
 
 
+_ELEICAO_TURNO = re.compile(r"^eleicao_(\d{4})_t(\d)_(\w+)$")
+
+
+def _label_envio(periodicidade: str) -> str:
+    m = _ELEICAO_TURNO.match(periodicidade)
+    if m:
+        ciclo, turno, disparo = m.groups()
+        return f"Resultado {ciclo}, {turno}º turno ({disparo})"
+    return _EMAIL_PERIODICIDADE_LABELS.get(periodicidade, periodicidade)
+
+
+def _resumo_aberturas(envios: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if not envios:
+        return None
+    enviados = sum(e["enviados"] for e in envios)
+    abertos = sum(e["abertos"] for e in envios)
+    return {
+        # média ponderada pelo tamanho de cada envio
+        "media_pct": round(100 * abertos / enviados, 1) if enviados else None,
+        "enviados": enviados,
+        "abertos": abertos,
+        "ultimo": envios[0],
+        "envios": envios[:12],
+    }
+
+
+def _email_aberturas(db: Session) -> Optional[dict[str, Any]]:
+    """% de abertura por envio (CS-148), só das mensagens rastreadas.
+
+    O mailer grava o Message-ID no email_send_log e o job de aberturas grava
+    em email_aberturas as mensagens abertas (eventos do Mailgun). Envio anterior
+    ao rastreio não tem message_id e fica fora da conta, para não puxar a média
+    para baixo. None se as tabelas ainda não existem.
+    """
+    try:
+        rows = db.execute(
+            text(
+                "SELECT l.periodicidade, l.created_at, "
+                "CASE WHEN a.message_id IS NULL THEN 0 ELSE 1 END AS aberto "
+                "FROM email_send_log l "
+                "LEFT JOIN email_aberturas a ON a.message_id = l.message_id "
+                "WHERE l.message_id IS NOT NULL AND l.status LIKE 'sent%'"
+            )
+        ).mappings().all()
+    except Exception:  # noqa: BLE001 — migration ainda não aplicada
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    # Relatório: um envio por periodicidade e dia (o cron dispara uma vez).
+    # Resultado da eleição: um envio por disparo, que pode se espalhar em dias.
+    grupos: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for r in rows:
+        criado = r["created_at"]
+        criado_iso = criado if isinstance(criado, str) else criado.isoformat()
+        eleicao = r["periodicidade"].startswith("eleicao_")
+        chave = (
+            "eleicao" if eleicao else "relatorio",
+            r["periodicidade"],
+            "" if eleicao else criado_iso[:10],
+        )
+        g = grupos.setdefault(
+            chave,
+            {
+                "periodicidade": r["periodicidade"],
+                "periodicidade_label": _label_envio(r["periodicidade"]),
+                "data": criado_iso,
+                "enviados": 0,
+                "abertos": 0,
+            },
+        )
+        g["data"] = max(g["data"], criado_iso)
+        g["enviados"] += 1
+        g["abertos"] += int(r["aberto"])
+
+    por_tipo: dict[str, list[dict[str, Any]]] = {"relatorio": [], "eleicao": []}
+    for (tipo, _, _), g in grupos.items():
+        g["pct"] = round(100 * g["abertos"] / g["enviados"], 1)
+        por_tipo[tipo].append(g)
+    for envios in por_tipo.values():
+        envios.sort(key=lambda e: e["data"], reverse=True)
+    return {
+        "relatorio": _resumo_aberturas(por_tipo["relatorio"]),
+        "eleicao": _resumo_aberturas(por_tipo["eleicao"]),
+    }
+
+
 def metrics_emails(
     db: Session, now: Optional[datetime] = None, history_limit: int = 200
 ) -> dict[str, Any]:
@@ -814,7 +904,8 @@ def metrics_emails(
         )
 
     hist = historico or []
-    enviados = [h for h in hist if h["status"] == "sent"]
+    # sent, sent_general e sent_no_activity (CS-133): todos saíram de fato.
+    enviados = [h for h in hist if h["status"].startswith("sent")]
     return {
         "log_disponivel": historico is not None,
         "kpis": {
@@ -825,4 +916,5 @@ def metrics_emails(
         },
         "historico": hist,
         "proximos": proximos,
+        "aberturas": _email_aberturas(db),
     }

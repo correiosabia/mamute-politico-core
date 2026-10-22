@@ -50,6 +50,7 @@ try:
     from ..db.models.roll_call_votes import RollCallVote
     from ..db.models.speeches_transcripts import SpeechesTranscript
     from ..routers.parliamentarians import _extract_photo_url_from_details
+    from .collection_amendments import linha_de_base, resumo_emendas
     from .editorial_agendas import tabelas_disponiveis
 except ImportError:  # execução dentro de api/
     from db.models.candidacy import Candidacy
@@ -74,6 +75,7 @@ except ImportError:  # execução dentro de api/
     from db.models.roll_call_votes import RollCallVote
     from db.models.speeches_transcripts import SpeechesTranscript
     from routers.parliamentarians import _extract_photo_url_from_details
+    from services.collection_amendments import linha_de_base, resumo_emendas
     from services.editorial_agendas import tabelas_disponiveis
 
 TABELAS = ("collection", "collection_member", "collection_block")
@@ -141,6 +143,16 @@ def _fontes(valor: Any) -> list[dict[str, Optional[str]]]:
         if label or url:
             fontes.append({"label": label, "url": url})
     return fontes
+
+
+def _url_foto(valor: Any, nome: str) -> Optional[str]:
+    """Só endereço https: a página é servida em https e uma foto http seria bloqueada."""
+    url = _texto(valor)
+    if url is None:
+        return None
+    if not url.startswith("https://"):
+        raise CollectionError(f"{nome}: a foto precisa de um endereço que comece com https://.")
+    return url
 
 
 # --------------------------------------------------------------------------
@@ -269,6 +281,8 @@ def get_collection(
     resultado["settings"] = colecao.settings if isinstance(colecao.settings, dict) else {}
     resultado["members"] = resolve_members(db, membros)
     resultado["blocks"] = resolve_blocks(db, blocos)
+    # Para comparar as emendas da lista com a mediana de todos os parlamentares.
+    resultado["amendments_baseline"] = linha_de_base(db)
     return resultado
 
 
@@ -398,6 +412,13 @@ def _parlamentar_out(p: Parliamentarian) -> dict[str, Any]:
     }
 
 
+def _foi_eleito(r: CandidacyResult) -> bool:
+    """O TSE marca `e = "s"` também para quem vai ao 2º turno: eleito é
+    `eleito` com a situação começando por "Eleito" (regra de `foi_eleito`
+    na coleta e do perfil dos eleitos)."""
+    return bool(r.eleito) and (r.situacao or "").strip().lower().startswith("eleito")
+
+
 def _candidatura_out(c: Candidacy, r: Optional[CandidacyResult]) -> dict[str, Any]:
     return {
         "id": int(c.id),
@@ -413,7 +434,7 @@ def _candidatura_out(c: Candidacy, r: Optional[CandidacyResult]) -> dict[str, An
         else {
             "round": r.turno,
             "status": r.situacao,
-            "elected": r.eleito,
+            "elected": _foi_eleito(r),
             "votes": r.votos,
             "percent": _num(r.percentual),
             "final": bool(r.totalizacao_final),
@@ -460,6 +481,7 @@ def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[s
     cand_ids = {int(c.id) for _, c in vinculos if c is not None}
     resultados = _resultados(db, cand_ids)
     cota = _cota(db, parl_ids)
+    emendas = resumo_emendas(db, parl_ids)
     patr_parl, patr_cand = _patrimonio(db, parl_ids, cand_ids)
 
     saida = []
@@ -472,10 +494,13 @@ def resolve_members(db: Session, membros: list[CollectionMember]) -> list[dict[s
                 "tier": m.tier,
                 "context": m.context,
                 "sources": _fontes(m.sources),
+                "photo_url": m.photo_url,
+                "photo_credit": m.photo_credit,
                 "position": int(m.position or 0),
                 "parliamentarian": _parlamentar_out(parl) if parl else None,
                 "candidacy": _candidatura_out(cand, resultados.get(int(cand.id))) if cand else None,
                 "expenses": cota.get(int(parl.id)) if parl else None,
+                "amendments": emendas.get(int(parl.id)) if parl else None,
                 "assets": _serie_patrimonio(
                     patr_parl.get(int(parl.id)) if parl else None,
                     patr_cand.get(int(cand.id)) if cand else None,
@@ -705,6 +730,8 @@ def replace_members(
                 "cpf": atual.cpf,
                 "parliamentarian_id": atual.parliamentarian_id,
                 "candidacy_id": atual.candidacy_id,
+                "photo_url": atual.photo_url,
+                "photo_credit": atual.photo_credit,
                 **item,
             }
         cpf_bruto = item.get("cpf")
@@ -732,6 +759,8 @@ def replace_members(
         m.tier = tier
         m.context = (item.get("context") or "").strip() or None
         m.sources = _fontes(item.get("sources"))
+        m.photo_url = _url_foto(item.get("photo_url"), nome)
+        m.photo_credit = _texto(item.get("photo_credit"))
         m.position = posicao
 
     removidos = set(existentes) - mantidos

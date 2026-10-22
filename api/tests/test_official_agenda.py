@@ -115,3 +115,39 @@ def test_rotas_da_colecao(client, session):
     main.app.dependency_overrides.pop(require_ghost_admin)
     publico = client.get("/api/collections/caso/agenda").json()
     assert publico["terms"] == ["Fulano Exemplar"] and len(publico["items"]) == 2
+
+
+def test_participantes_e_duas_fontes(session):
+    _base(session)
+    session.add_all(
+        [
+            # A mesma reunião do BC vinda do e-Agendas: junta com a da agenda da diretoria, sem repetir nome.
+            OfficialAgendaItem(
+                id=20, source="eagendas", authority_id="9:pessoa 1", authority_name="Pessoa 1", office="Presidente",
+                office_label="Presidente", event_date=date(2025, 4, 1), seq=0, starts_at="11:00",
+                description="Audiência com Fulano Exemplar.", place="Banco Central do Brasil", remote=False,
+                organization="Banco Central do Brasil", participants="Agentes públicos participantes: PESSOA 1",
+            ),
+            # Termo só nos participantes, em outro órgão.
+            OfficialAgendaItem(
+                id=21, source="eagendas", authority_id="10:ministro", authority_name="Ministro Exemplo",
+                office="Ministro de Estado", office_label="Ministro de Estado", event_date=date(2024, 3, 18), seq=0,
+                starts_at="17:00", description="Programa habitacional", remote=False,
+                organization="Ministério do Exemplo",
+                participants="Agentes públicos participantes: MINISTRO EXEMPLO (CPF: ***.111.222-**) / MINISTRO || "
+                "Agentes privados participantes: Sicrano representando Banco X",
+            ),
+        ]
+    )
+    for i in (1, 2, 3):
+        session.get(OfficialAgendaItem, i).organization = "Banco Central do Brasil"
+    session.commit()
+    r = search_agenda(session, ["Fulano Exemplar", "Banco X"])
+    manha = next(i for i in r["items"] if i["date"] == "2025-04-01" and i["starts_at"] == "11:00")
+    assert sorted(manha["sources"]) == ["bcb", "eagendas"]
+    assert [a["name"] for a in manha["authorities"]].count("Pessoa 1") == 1
+    hab = next(i for i in r["items"] if i["date"] == "2024-03-18")
+    assert hab["matched"] == ["Banco X"] and hab["organization"] == "Ministério do Exemplo"
+    assert hab["participants_excerpt"] == "Sicrano representando Banco X"
+    assert "CPF" not in hab["participants_excerpt"]
+    assert {s["source"] for s in r["sources"]} == {"bcb", "eagendas"}

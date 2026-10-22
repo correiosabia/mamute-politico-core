@@ -12,17 +12,30 @@ from mamute_scrappers.db import session_scope
 from mamute_scrappers.db.session import get_session
 
 from .config import (
+    PERIOD_DAYS,
     PERIODICIDADE_TESTE,
     default_highlight_limit,
+    get_branding,
     subject_for_periodicidade,
 )
-from .mailer import send_html_email
+from .descadastro import links_descadastro
+from .mailer import TAG_MAMUTE, TAG_RELATORIO, send_html_email
 from .models import ProjectRecipient
-from .report_builder import build_project_report, render_report_html
-from .repository import get_recipient_by_id, list_recipients_for_periodicity
+from .flags import FLAG_DESTAQUES_GERAIS, carregar_flags, emails_admin
+from .geral import build_general_highlights
+from .settings import load_email_settings
+from .share import share_code_for
+from .report_builder import EnvioContexto, build_project_report, render_report_html
+from .repository import (
+    date_range_for_period,
+    get_recipient_by_id,
+    list_recipients_for_periodicity,
+)
 from .send_log import (
     STATUS_ERROR,
     STATUS_SENT,
+    STATUS_SENT_GENERAL,
+    STATUS_SENT_NO_ACTIVITY,
     STATUS_SKIPPED_NO_ACTIVITY,
     STATUS_SKIPPED_NO_FAVORITES,
     log_send_attempt,
@@ -49,6 +62,7 @@ def _process_recipient(
     skip_empty: bool,
     save_html: bool,
     output_dir: Path,
+    contexto: Optional[EnvioContexto] = None,
 ) -> str:
     session = get_session()
 
@@ -71,6 +85,7 @@ def _process_recipient(
             recipient,
             periodicidade,
             highlight_limit=highlight_limit,
+            contexto=contexto,
         )
         if report is None:
             _log(STATUS_SKIPPED_NO_FAVORITES)
@@ -80,17 +95,11 @@ def _process_recipient(
             "proposicoes": report.stats.propositions_count,
             "votacoes": report.stats.votes_count,
             "discursos": report.stats.speeches_count,
+            "emendas": report.stats.amendments_count,
             "destaques": len(report.highlights),
             "parlamentares": len(report.parliamentarians),
         }
-        has_activity = (
-            report.stats.propositions_count
-            + report.stats.votes_count
-            + report.stats.speeches_count
-            > 0
-            or bool(report.highlights)
-        )
-        if skip_empty and not has_activity:
+        if skip_empty and not report.tem_atividade and report.motivo_geral is None:
             _log(
                 STATUS_SKIPPED_NO_ACTIVITY,
                 stats=report_stats,
@@ -99,7 +108,13 @@ def _process_recipient(
             )
             return f"projeto {recipient.id}: sem atividade no período"
 
-        html_body = render_report_html(report, periodicidade)
+        if report.design_novo:
+            _atribuir_links_curtos(session, report)
+        html_body = render_report_html(
+            report,
+            periodicidade,
+            settings=contexto.settings if contexto else None,
+        )
 
         if save_html or dry_run:
             path = _save_html(recipient.id, periodicidade, html_body, output_dir)
@@ -113,13 +128,24 @@ def _process_recipient(
             return f"projeto {recipient.id}: dry-run ({recipient.email})"
 
         subject = subject_for_periodicidade(periodicidade)
-        send_html_email(html_body, recipient.email, subject)
+        message_id = send_html_email(
+            html_body,
+            recipient.email,
+            subject,
+            unsubscribe_url=_one_click(recipient),
+            tags=(TAG_MAMUTE, TAG_RELATORIO),
+        )
+        status = {
+            "sem_selecao": STATUS_SENT_GENERAL,
+            "sem_atividade": STATUS_SENT_NO_ACTIVITY,
+        }.get(report.motivo_geral or "", STATUS_SENT)
         _log(
-            STATUS_SENT,
+            status,
             subject=subject,
             stats=report_stats,
             period_start=report.range_start,
             period_end=report.range_end,
+            message_id=message_id,
         )
         return f"projeto {recipient.id}: enviado para {recipient.email}"
     except Exception as exc:
@@ -134,6 +160,23 @@ def _process_recipient(
         session.close()
 
 
+def _one_click(recipient: ProjectRecipient) -> Optional[str]:
+    links = links_descadastro(get_branding(), recipient.email_token)
+    return links.one_click if links else None
+
+
+def _atribuir_links_curtos(session, report) -> None:
+    """Código de compartilhamento de cada destaque (só o design novo mostra)."""
+    casas = {fav.display_name: fav.chamber for fav in report.favorite_parliamentarians}
+    itens = list(report.highlights)
+    if report.geral:
+        itens.extend(report.geral.votacoes)
+    for item in itens:
+        item.share_code = share_code_for(
+            session, item, chamber=casas.get(item.parliamentarian_name, "")
+        )
+
+
 def resolve_recipients(
     periodicidade: str,
     *,
@@ -144,13 +187,32 @@ def resolve_recipients(
         if projeto_id is not None:
             recipient = get_recipient_by_id(session, projeto_id)
             if recipient is None:
-                raise RuntimeError(f"Projeto {projeto_id} não encontrado ou inativo.")
+                raise RuntimeError(
+                    f"Projeto {projeto_id} não encontrado, inativo ou com e-mails desativados."
+                )
             return [recipient]
         return list_recipients_for_periodicity(
             session,
             periodicidade,
             include_without_tier=include_without_tier,
         )
+
+
+def carregar_contexto(periodicidade: str) -> EnvioContexto:
+    """Flags e destaques gerais, uma vez por envio (e não por conta)."""
+    with session_scope() as session:
+        snapshot = carregar_flags(session)
+        geral = None
+        dias = PERIOD_DAYS.get(periodicidade)
+        if dias and snapshot.estados.get(FLAG_DESTAQUES_GERAIS, "off") != "off":
+            inicio, fim, _, _ = date_range_for_period(dias)
+            try:
+                geral = build_general_highlights(session, inicio, fim)
+            except Exception:  # noqa: BLE001 (sem destaques gerais o envio segue como antes)
+                logger.exception("Destaques gerais indisponíveis; quem não tem atividade será pulado.")
+                session.rollback()
+        settings = load_email_settings(session)
+    return EnvioContexto(flags=snapshot, admins=emails_admin(), geral=geral, settings=settings)
 
 
 def run(
@@ -197,6 +259,9 @@ def run(
             periodicidade,
         )
 
+    contexto = carregar_contexto(periodicidade)
+    logger.info("Flags do e-mail: %s", contexto.flags.estados or "todas desligadas")
+
     workers = max_workers or os.cpu_count() or 4
     logger.info(
         "Processando %s projeto(s) com %s worker(s). dry_run=%s limite=%s",
@@ -217,6 +282,7 @@ def run(
                 skip_empty=skip_empty,
                 save_html=save_html,
                 output_dir=out_dir,
+                contexto=contexto,
             )
             for recipient in recipients
         ]

@@ -108,7 +108,7 @@ PYTHONPATH=/app
 # Timeline eleitoral (histórico + patrimônio) — semeia do JSONB local (barato,
 # mantém o resultado atualizado na apuração) e drena até 5000 detalhes de bens
 # por dia (retomável; parlamentares primeiro, depois anos mais recentes).
-50 6 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh tse-electoral-history -- /usr/local/bin/python -m mamute_scrappers.tse_crawler.electoral_history --max-details 5000 >> /proc/1/fd/1 2>> /proc/1/fd/2
+50 6 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh tse-electoral-history -- /usr/local/bin/python -m mamute_scrappers.tse_crawler.electoral_history --max-details 5000 --max-minutes 180 >> /proc/1/fd/1 2>> /proc/1/fd/2
 
 # Resultado da eleição (CS-106/CS-119): coleta os JSONs oficiais do TSE e avisa
 # quem acompanha candidatos, a cada 15 min. Antes da data do pleito a coleta sai
@@ -133,6 +133,10 @@ PYTHONPATH=/app
 # Só entrega de fato quando: (a) MAIL_PROVIDER + credenciais no .env (Mailgun entrega
 # a usuários reais, sem o sandbox que o SES exigia) e (b) o tier tiver periodicidade_email.
 # Horários em UTC (container TZ=UTC): 11:00 UTC = 08:00 BRT.
+# Resumo curto dos discursos para o relatório por e-mail: diário, 09:00 UTC
+# (06:00 BRT), antes dos envios das 11:00 UTC. Só paga IA pelo que é novo.
+0 9 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh speech-short-summary -- /usr/local/bin/python -m mamute_scrappers.scripts.speech_short_summary >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # NÃO agendar `total` (é modo de teste/preview, manda para todos os projetos).
 
 # Relatório diário — todo dia, 11:00 UTC (08:00 BRT)
@@ -147,6 +151,12 @@ PYTHONPATH=/app
 
 # Relatório mensal — dia 1, 11:00 UTC (08:00 BRT)
 0 11 1 * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh notif-month -- /usr/local/bin/python -m mamute_scrappers.scripts.notificacao --periodicidade month >> /proc/1/fd/1 2>> /proc/1/fd/2
+
+# Aberturas dos e-mails do Mamute (CS-148): de hora em hora, no minuto 37. Lê os
+# eventos "opened" da tag mamute na API do Mailgun (guarda só poucos dias) e grava
+# em email_aberturas; a aba E-mails do painel calcula a % de abertura. Relê as
+# últimas 26h a cada rodada sem duplicar. Sem MAILGUN_API_KEY no .env, não faz nada.
+37 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh email-aberturas -- /usr/local/bin/python -m mamute_scrappers.scripts.notificacao.aberturas >> /proc/1/fd/1 2>> /proc/1/fd/2
 
 # Saldo do OpenRouter (de hora em hora) — CS-31.
 # Em 29/07/2026 os créditos zeraram no meio da carga de embeddings e o chatbot
@@ -196,6 +206,18 @@ PYTHONPATH=/app
 # diário às 07h45 UTC. API aberta, ~1 requisição por mês coberto. Backfill
 # (uma vez): python -m mamute_scrappers.agenda_crawler.banco_central --desde 2019-01-01
 45 7 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-bcb -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.banco_central >> /proc/1/fd/1 2>> /proc/1/fd/2
+
+# Agenda da Presidência e dos ministros do STF (CS-135): GraphQL do portal, uma
+# consulta por mês (mês passado até +30 dias), 25 s entre consultas por causa do
+# WAF. Diário às 07h55 UTC. Backfill (uma vez):
+# python -m mamute_scrappers.agenda_crawler.stf --desde 2025-01-01
+55 7 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-stf -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.stf >> /proc/1/fd/1 2>> /proc/1/fd/2
+
+# e-Agendas da CGU (CS-135): ZIP de dados abertos com todo o Executivo federal
+# (~200 MB, atualização mensal na fonte). Grava só o que cita os termos de
+# collection.settings.agenda_terms e substitui a fonte inteira a cada coleta;
+# termo novo aparece na coleta seguinte. Semanal, domingo 08h15 UTC (~2 min).
+15 8 * * 0 cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-eagendas -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.eagendas >> /proc/1/fd/1 2>> /proc/1/fd/2
 
 # Backfill 2022 -> ano corrente (a cada 1h no minuto 20 — livre entre os jobs
 # horarios, que ocupam 10, 25, 35, 40 e 55). Sao 10 chunks ano x casa; com 2

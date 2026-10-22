@@ -28,4 +28,6 @@ class OfficialAgendaItem(Base):
     place = Column(Text, nullable=True)
     remote = Column(Boolean, nullable=False, default=False)
     url = Column(Text, nullable=True)
+    organization = Column(Text, nullable=True)
+    participants = Column(Text, nullable=True)
     collected_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

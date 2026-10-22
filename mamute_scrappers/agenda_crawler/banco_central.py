@@ -193,6 +193,8 @@ def build_items(item: dict[str, Any]) -> list[dict[str, Any]]:
             "event_date": dia,
             "seq": i,
             "url": PAGE_URL,
+            "organization": "Banco Central do Brasil",
+            "participants": None,
             **c,
         }
         for i, c in enumerate(parse_dia(item.get("descricao") or ""))
@@ -236,7 +238,10 @@ def _meses(inicio: date, fim: date):
         atual = proximo
 
 
-def save_day(session: Any, linhas: list[dict[str, Any]], *, authority_id: str, event_date: date) -> None:
+def save_day(
+    session: Any, linhas: list[dict[str, Any]], *, authority_id: str, event_date: date, source: str = SOURCE
+) -> None:
+    """Regrava o dia de uma autoridade (usado também pelo coletor do STF)."""
     from sqlalchemy import text
 
     session.execute(
@@ -244,15 +249,16 @@ def save_day(session: Any, linhas: list[dict[str, Any]], *, authority_id: str, e
             "DELETE FROM official_agenda_item "
             "WHERE source = :s AND authority_id = :a AND event_date = :d"
         ),
-        {"s": SOURCE, "a": authority_id, "d": event_date},
+        {"s": source, "a": authority_id, "d": event_date},
     )
     if linhas:
         session.execute(
             text(
                 "INSERT INTO official_agenda_item (source, authority_id, authority_name, office, "
-                "office_label, event_date, seq, starts_at, ends_at, description, place, remote, url) "
+                "office_label, event_date, seq, starts_at, ends_at, description, place, remote, url, "
+                "organization, participants) "
                 "VALUES (:source, :authority_id, :authority_name, :office, :office_label, :event_date, "
-                ":seq, :starts_at, :ends_at, :description, :place, :remote, :url)"
+                ":seq, :starts_at, :ends_at, :description, :place, :remote, :url, :organization, :participants)"
             ),
             linhas,
         )
@@ -270,6 +276,9 @@ def collect(inicio: date, fim: date, *, persist: bool = True) -> dict[str, int]:
 
     dias = compromissos = 0
     with contexto as session:
+        from mamute_scrappers.agenda_crawler.alerta import avisar_novos, foto
+
+        antes = foto(session, SOURCE) if session is not None else set()
         for de, ate in _meses(inicio, fim):
             itens = fetch_range(de, ate)
             for (autoridade, dia), linhas in por_dia(itens).items():
@@ -280,6 +289,8 @@ def collect(inicio: date, fim: date, *, persist: bool = True) -> dict[str, int]:
             if session is not None:
                 session.commit()
             logger.info("Agenda BC %s a %s: %s dias de autoridade.", de, ate, len(itens))
+        if session is not None:
+            avisar_novos(session, SOURCE, antes)
     logger.info("=== Agenda BC %s a %s: %s dias, %s compromissos ===", inicio, fim, dias, compromissos)
     if not persist:
         logger.info("Modo dry-run: nada foi gravado.")

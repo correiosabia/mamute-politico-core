@@ -246,6 +246,7 @@ class ProjectDashboardStatsOut(BaseModel):
     attendance_legislature_percent: Optional[int] = None
     recent_votes_count: int
     speeches_count: int
+    speeches_legislature: int
     legislature_start_year: int
     legislature_end_year: int
 
@@ -1982,8 +1983,9 @@ def _build_dashboard_stats(
 ) -> ProjectDashboardStatsOut:
     """Monta o card em duas janelas: ultimos 3 meses e legislatura vigente.
 
-    Votacoes e discursos seguem so na janela curta — sao "o que aconteceu
-    recentemente", e o card ja fica cheio demais com seis numeros.
+    Votacoes seguem so na janela curta. Discursos ganharam a legislatura na
+    CS-124: so a janela curta mostrava "1 discurso" no perfil de quem tinha
+    141 na legislatura, enquanto a Pesquisa IA citava todos.
     """
     leg_inicio, leg_fim = _current_legislature_range()
 
@@ -1995,6 +1997,7 @@ def _build_dashboard_stats(
             attendance_legislature_percent=None,
             recent_votes_count=0,
             speeches_count=0,
+            speeches_legislature=0,
             legislature_start_year=leg_inicio.year,
             legislature_end_year=leg_inicio.year + _LEGISLATURA_DURACAO_ANOS,
         )
@@ -2021,6 +2024,9 @@ def _build_dashboard_stats(
         ),
         speeches_count=_count_speeches_in_range(
             db, parliamentarian_ids, range_start, range_end
+        ),
+        speeches_legislature=_count_speeches_in_range(
+            db, parliamentarian_ids, leg_inicio, leg_fim
         ),
         legislature_start_year=leg_inicio.year,
         legislature_end_year=leg_inicio.year + _LEGISLATURA_DURACAO_ANOS,

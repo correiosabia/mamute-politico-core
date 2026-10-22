@@ -97,6 +97,9 @@ class CollectionMember(Base):
     context = Column(Text)
     # [{"label": "...", "url": "..."}]
     sources = Column(_JSON, nullable=False, default=list)
+    # Foto pública para quem não tem foto no cadastro, com o crédito que a licença pede.
+    photo_url = Column(Text)
+    photo_credit = Column(Text)
     position = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(

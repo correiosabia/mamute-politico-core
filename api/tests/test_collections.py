@@ -370,6 +370,66 @@ def test_salvar_sem_vinculo_no_corpo_preserva_o_vinculo(client, session):
     assert solta["parliamentarian"] is None
 
 
+def test_foto_de_quem_esta_fora_da_base(client, session):
+    """Foto pública com crédito para quem não tem foto no cadastro; salvar sem o campo não apaga."""
+    _base(session)
+    criada = _cria(client)
+    url = f"/api/admin/collections/{criada['id']}/members"
+    fulano = client.put(
+        url,
+        json={
+            "members": [
+                {
+                    "display_name": "Fulano",
+                    "role_label": "Ex-ministro",
+                    "photo_url": " https://upload.wikimedia.org/foto.jpg ",
+                    "photo_credit": "Fotógrafo/Agência, CC BY 2.0",
+                }
+            ]
+        },
+    ).json()[0]
+    assert fulano["photo_url"] == "https://upload.wikimedia.org/foto.jpg"
+    assert fulano["photo_credit"] == "Fotógrafo/Agência, CC BY 2.0"
+
+    editado = client.put(url, json={"members": [{"id": fulano["id"], "display_name": "Fulano de Tal"}]}).json()[0]
+    assert editado["photo_url"] == "https://upload.wikimedia.org/foto.jpg"
+
+    apagado = client.put(
+        url, json={"members": [{"id": fulano["id"], "display_name": "Fulano", "photo_url": None}]}
+    ).json()[0]
+    assert apagado["photo_url"] is None
+
+    http = client.put(url, json={"members": [{"display_name": "Beltrano", "photo_url": "http://exemplo/foto.jpg"}]})
+    assert http.status_code == 422
+    assert "https://" in http.json()["detail"]
+
+
+def test_quem_foi_ao_segundo_turno_nao_aparece_como_eleito(client, session):
+    """O TSE marca `e = "s"` também para quem vai ao 2º turno (Flávio, 2026).
+
+    Mesma regra de `foi_eleito` na coleta: eleito é `eleito` com a situação
+    começando por "Eleito". A situação continua indo como o TSE escreveu.
+    """
+    _base(session)
+    session.add(
+        CandidacyResult(
+            id=2, candidacy_id=101, turno=1, codigo_eleicao=1, situacao="2º turno",
+            eleito=True, votos=900000, totalizacao_final=True,
+        )
+    )
+    session.commit()
+    criada = _cria(client)
+    resp = client.put(
+        f"/api/admin/collections/{criada['id']}/members",
+        json={"members": [{"display_name": "Ana", "cpf": "11111111111", "tier": 1}]},
+    )
+
+    [ana] = resp.json()
+
+    assert ana["candidacy"]["result"]["status"] == "2º turno"
+    assert ana["candidacy"]["result"]["elected"] is False
+
+
 def test_last_curated_at_e_a_maior_data_entre_colecao_membros_e_blocos(client, session):
     """CS-152: a data mostrada é a maior entre coleção, pessoas e blocos; remoção também toca."""
 

@@ -189,6 +189,74 @@ são resolvidos a cada leitura:
 
 Toda escrita entra no `admin_audit_log`.
 
+## Discursos e temas por janela (CS-124)
+
+O card de Estatísticas e a nuvem de temas usam as mesmas duas janelas: últimos
+3 meses ("o que ele andou fazendo agora") e legislatura vigente ("que
+parlamentar ele é"). A Pesquisa IA consulta o histórico inteiro, por isso cita
+discursos fora das duas.
+
+- `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve
+  `speeches_count` (3 meses) e `speeches_legislature`.
+- `GET /api/analysis/parliamentarian/{code}/terms?window=legislature|last_3_months`
+  soma no banco a palavra-chave principal de cada discurso da janela. A
+  listagem paginada (`/analysis/parliamentarian/{code}`) para em 100 discursos
+  e cortava a nuvem de quem discursa muito.
+
+Os termos de `/terms` voltam crus, sem normalizar caixa e sem stopwords: quem
+consome aplica as listas de `word_cloud_terms`, as mesmas da tela de
+configurações. `speeches_count` e `speeches_analyzed` vêm separados para a tela
+distinguir "não discursou" de "discursou e ainda não foi analisado".
+
+## Relatório por e-mail: configurações e link curto (CS-116/CS-134)
+
+- `GET`/`PUT /api/admin/settings/email` (admin): peças editáveis do e-mail
+  (`banner_image_url`, `banner_link_url`, `footer_image_url`,
+  `footer_link_url`, `instagram_url`, `subscribe_url`, `share_text`). O PUT
+  muda só os campos enviados; links precisam ser `https://` ou uma imagem
+  enviada aqui. Auditado em `admin_audit_log`.
+- `POST /api/admin/settings/email/images` (admin): `{content_type, data_base64}`,
+  PNG/JPG/GIF/WebP até 1 MB. Grava no banco (`public_image`) e devolve
+  `/api/public-images/{sha256}`, servida sem login e com cache imutável.
+- `GET /api/s/{código}` (público): tags de prévia (`og:*`, `twitter:*`) do
+  destaque gravado em `share_link` e redirecionamento para `MAMUTE_SITE_URL`.
+  Código inexistente vai direto para o site.
+- `GET /api/s/{código}.png` (público): imagem da prévia. Vem do cache
+  (`share_card_cache`) ou do serviço em `OG_RENDER_URL` (POST `/render`,
+  timeout de 10 s). Falha = redireciona para `MAMUTE_SHARE_FALLBACK_IMAGE`
+  (sem ela, 404) e não grava cache.
+- `GET /api/s/{código}/story?rede=instagram|tiktok` (público): página que mostra
+  o card vertical (1080x1920) e explica como postar no story. É para onde vão os
+  ícones de Instagram e TikTok do e-mail: nenhum dos dois aceita link vindo de
+  fora, então a pessoa salva a imagem e posta.
+- `GET /api/s/{código}/story.png` (público): o card vertical, do cache ou do
+  `OG_RENDER_URL` com `formato: "story"`. Falha = 404 (a imagem padrão é
+  horizontal). `?baixar=1` manda como anexo.
+- `GET /api/s/icones/{rede}.png` (público): ícones do e-mail (whatsapp, x,
+  facebook, instagram, tiktok), PNG porque o Gmail não mostra SVG.
+
+Todas as tabelas são da migration `cs116a1b2c3d4`; antes dela, leitura devolve
+vazio em vez de erro. O cache por formato (`og`/`story`) é da `cs116b2c3d4e5`;
+antes dela, a imagem é desenhada a cada pedido, sem cache.
+
+## Descadastro dos e-mails do Mamute (CS-150)
+
+Um interruptor por leitor (`projetos.emails_desativados_em`, NULL = recebe) para
+o relatório periódico e o aviso de resultado da eleição. Não mexe nas
+newsletters do Ghost.
+
+- `GET`/`PUT /api/projects/me/email-preferences` (logado): `{recebe}`; responde
+  `{recebe, email_mascarado}`. É o interruptor da Minha conta.
+- `POST /api/email-preferences/unsubscribe?t=<email_token>` (público): link do
+  rodapé e botão "Cancelar inscrição" do Gmail (`List-Unsubscribe-Post`, RFC
+  8058; o corpo é ignorado). Só POST: antivírus e prévia de link abrem GETs
+  sozinhos. Repetir não muda a data do primeiro pedido.
+- `POST /api/email-preferences/resubscribe?t=<email_token>` (público): voltar a
+  receber pela mesma página.
+
+Token inexistente ou de conta apagada = 404 com texto de tela. As colunas são da
+migration `cs150a1b2c3d4`; antes dela, os quatro respondem 503.
+
 ## Presença no card de Estatísticas (CS-79)
 
 `GET /api/projects/me/parliamentarians/{id}/dashboard-stats` devolve

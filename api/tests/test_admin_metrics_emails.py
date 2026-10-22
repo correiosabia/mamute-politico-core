@@ -137,3 +137,74 @@ def test_metrics_emails_without_log_table() -> None:
     assert data["kpis"]["enviados"] == 0
     # próximos envios continuam disponíveis mesmo sem a migration do log
     assert len(data["proximos"]) == 4
+
+
+def test_destaques_gerais_contam_como_enviados(session: Session) -> None:
+    """Com a flag email_destaques_gerais, quem era pulado passa a receber (CS-133)."""
+    from sqlalchemy import text
+
+    session.execute(
+        text(
+            "insert into email_send_log (projeto_id, email, periodicidade, status, created_at) values "
+            "(2,'bruno@x.com','fortnight','sent_general','2026-07-16 11:00:07'),"
+            "(1,'ana@x.com','fortnight','sent_no_activity','2026-07-16 11:00:08')"
+        )
+    )
+    session.commit()
+
+    kpis = metrics_emails(session, now=NOW)["kpis"]
+
+    assert kpis["enviados"] == 3
+    assert kpis["pulados"] == 1
+
+
+def test_metrics_emails_aberturas_por_envio() -> None:
+    """CS-148: % de abertura só das mensagens rastreadas, por envio."""
+    session = _make_session()
+    conn = session.connection()
+    conn.exec_driver_sql("alter table email_send_log add column message_id text")
+    conn.exec_driver_sql(
+        "create table email_aberturas (message_id text primary key, "
+        "primeira_abertura_em timestamp, ultima_abertura_em timestamp, tags text)"
+    )
+    linhas = [
+        # quinzenal de 01/11: 4 enviados, 1 erro (fora da conta), 2 abertos
+        ("fortnight", "sent", "q1", "2026-11-01 11:00:01"),
+        ("fortnight", "sent_general", "q2", "2026-11-01 11:00:02"),
+        ("fortnight", "sent", "q3", "2026-11-01 11:00:03"),
+        ("fortnight", "sent", "q4", "2026-11-01 11:00:04"),
+        ("fortnight", "error", "q5", "2026-11-01 11:00:05"),
+        # quinzenal de 16/11: 2 enviados, 2 abertos
+        ("fortnight", "sent", "r1", "2026-11-16 11:00:01"),
+        ("fortnight", "sent", "r2", "2026-11-16 11:00:02"),
+        # aviso de eleição: 2 enviados em dias diferentes, 1 aberto
+        ("eleicao_2026_t2_completo", "sent", "e1", "2026-10-26 01:00:00"),
+        ("eleicao_2026_t2_completo", "sent", "e2", "2026-10-27 09:00:00"),
+    ]
+    for periodicidade, status, mid, criado in linhas:
+        conn.exec_driver_sql(
+            "insert into email_send_log (projeto_id, email, periodicidade, status, "
+            "message_id, created_at) values (1, 'ana@x.com', ?, ?, ?, ?)",
+            (periodicidade, status, mid, criado),
+        )
+    for mid in ("q1", "q3", "q5", "r1", "r2", "e2"):
+        conn.exec_driver_sql(
+            "insert into email_aberturas (message_id, primeira_abertura_em, ultima_abertura_em) "
+            "values (?, '2026-11-01', '2026-11-01')",
+            (mid,),
+        )
+
+    ab = metrics_emails(session, now=NOW)["aberturas"]
+    rel = ab["relatorio"]
+    # linha antiga sem message_id (fixture) não entra; erro não conta
+    assert (rel["enviados"], rel["abertos"], rel["media_pct"]) == (6, 4, 66.7)
+    assert rel["ultimo"]["data"].startswith("2026-11-16")
+    assert (rel["ultimo"]["enviados"], rel["ultimo"]["pct"]) == (2, 100.0)
+    assert [e["pct"] for e in rel["envios"]] == [100.0, 50.0]
+    ele = ab["eleicao"]
+    assert (ele["enviados"], ele["abertos"], ele["media_pct"]) == (2, 1, 50.0)
+    assert ele["ultimo"]["periodicidade_label"] == "Resultado 2026, 2º turno (completo)"
+
+
+def test_metrics_emails_aberturas_sem_migration(session: Session) -> None:
+    assert metrics_emails(session, now=NOW)["aberturas"] is None
