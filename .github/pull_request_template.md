@@ -1,16 +1,12 @@
 <!--
-═══════════════════════════════════════════════════════════════
- PADRÃO DE PR DA LV DEV
-
  TÍTULO: começa com a key do Jira, exatamente como está lá.
-         Ex: DEV-791: Corrige cálculo de saldo na tela de fechamento
+         Ex: CS-123: Corrige cálculo de saldo na tela de fechamento
 
- TASK RELACIONADA: cite SEM o hífen (DEV791, não DEV-791),
+ TASK RELACIONADA no corpo: cite SEM o hífen (CS123, não CS-123),
          senão o GitHub vincula ela junto e o quadro se move errado.
 
  Apague as seções que não se aplicam e apague estes comentários
  de instrução conforme for preenchendo.
-═══════════════════════════════════════════════════════════════
 -->
 
 <!--
@@ -33,15 +29,7 @@
 
 ## Causa raiz
 
-<!--
- OBRIGATÓRIO em PR de bug. Apague a seção se não for correção.
-
- ESCRITO POR HUMANO. Esta seção não deve ser preenchida por IA,
- em nenhuma hipótese. Uma linha basta.
-
- Ex: "O erro 500 acontecia ao tentar excluir um usuário porque
-      tentava direcionar pra uma URL de retorno que não existe mais."
--->
+<!-- OBRIGATÓRIO em PR de bug. Apague a seção se não for correção. Uma linha basta. -->
 
 > [!NOTE]
 > A preencher pelo autor.
@@ -56,13 +44,7 @@
 
 ## Prints
 
-<!--
- OBRIGATÓRIO quando a mudança aparece na tela.
- Bom senso em correção só de backend: pode apagar a seção.
-
- ANEXADO POR HUMANO. Se você automatizar a captura, ótimo,
- só não deixe passar sem print quando a tela mudou.
--->
+<!-- OBRIGATÓRIO quando a mudança aparece na tela. Em correção só de backend, apague a seção. -->
 
 > [!NOTE]
 > A anexar pelo autor.
@@ -79,6 +61,4 @@
 - [ ] Título começa com a key do Jira exata
 - [ ] Tasks relacionadas citadas sem hífen
 - [ ] Print anexado, se a mudança aparece na tela
-- [ ] Causa raiz escrita por mim, se for bug
 - [ ] Bloco de antes/após deploy preenchido, se for o caso
-- [ ] Consigo explicar o que fiz sem consultar a IA
