@@ -368,3 +368,47 @@ def test_salvar_sem_vinculo_no_corpo_preserva_o_vinculo(client, session):
         url, json={"members": [{"id": ana["id"], "display_name": "Ana", "cpf": None}]}
     ).json()[0]
     assert solta["parliamentarian"] is None
+
+
+def test_last_curated_at_e_a_maior_data_entre_colecao_membros_e_blocos(client, session):
+    """CS-152: a data mostrada é a maior entre coleção, pessoas e blocos; remoção também toca."""
+
+    from datetime import datetime, timezone
+
+    criada = _cria(client)
+    # Marco inicial: só a coleção existe.
+    inicial = client.get(f"/api/admin/collections/{criada['id']}").json()
+    assert inicial["last_curated_at"] == inicial["updated_at"]
+
+    base = f"/api/admin/collections/{criada['id']}"
+    cid = criada["id"]
+    cedo = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+    # Força a coleção para uma data antiga: a leitura precisa pegar a data da pessoa.
+    session.query(Collection).filter(Collection.id == cid).update({"updated_at": cedo})
+    session.commit()
+
+    membro = client.put(f"{base}/members", json={"members": [{"display_name": "Ana"}]}).json()[0]
+    detalhe = client.get(base).json()
+    assert detalhe["last_curated_at"] > detalhe["updated_at"]
+
+    # Adiciona um bloco com data futura à mão: a leitura passa a refletir o bloco.
+    futuro = datetime(2099, 1, 1, tzinfo=timezone.utc)
+    client.put(f"{base}/blocks", json={"blocks": [{"kind": "text", "body": "x"}]})
+    session.query(CollectionBlock).filter(CollectionBlock.collection_id == cid).update(
+        {"updated_at": futuro}
+    )
+    session.commit()
+    assert client.get(base).json()["last_curated_at"].startswith("2099-01-01")
+
+    # Remover o membro some com a data dele: a coleção precisa ter sido "tocada"
+    # para a tela não voltar para a data antiga.
+    client.put(f"{base}/members", json={"members": []})
+    depois_remocao = client.get(base).json()
+    assert depois_remocao["updated_at"] > "2020-01-01"
+
+    # Remover o bloco idem: sem bloco, o updated_at da coleção precisa estar atual.
+    client.put(f"{base}/blocks", json={"blocks": []})
+    final = client.get(base).json()
+    assert final["updated_at"] > "2020-01-01"
+    assert final["last_curated_at"] == final["updated_at"]

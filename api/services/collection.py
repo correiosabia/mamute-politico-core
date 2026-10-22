@@ -148,7 +148,9 @@ def _fontes(valor: Any) -> list[dict[str, Optional[str]]]:
 # --------------------------------------------------------------------------
 
 
-def _resumo_colecao(c: Collection, membros: int) -> dict[str, Any]:
+def _resumo_colecao(
+    c: Collection, membros: int, last_curated_at: Optional[datetime] = None
+) -> dict[str, Any]:
     return {
         "id": int(c.id),
         "slug": c.slug,
@@ -158,8 +160,25 @@ def _resumo_colecao(c: Collection, membros: int) -> dict[str, Any]:
         "status": c.status,
         "published_at": _iso(c.published_at),
         "updated_at": _iso(c.updated_at),
+        # Maior data entre a coleção, suas pessoas e seus blocos: é o que a tela
+        # mostra como "Última atualização em". Só o editor move essa data; o que
+        # se atualiza sozinho (agenda, emendas) não entra.
+        "last_curated_at": _iso(last_curated_at if last_curated_at is not None else c.updated_at),
         "member_count": membros,
     }
+
+
+def _last_curated_at(
+    colecao: Collection,
+    membros: Iterable[CollectionMember],
+    blocos: Iterable[CollectionBlock],
+) -> datetime:
+    """Maior updated_at entre a coleção, suas pessoas e seus blocos."""
+
+    datas = [colecao.updated_at]
+    datas.extend(m.updated_at for m in membros if m.updated_at is not None)
+    datas.extend(b.updated_at for b in blocos if b.updated_at is not None)
+    return max(d for d in datas if d is not None)
 
 
 def list_collections(db: Session, *, incluir_rascunhos: bool = False) -> list[dict[str, Any]]:
@@ -245,7 +264,7 @@ def get_collection(
         .all()
     )
 
-    resultado = _resumo_colecao(colecao, len(membros))
+    resultado = _resumo_colecao(colecao, len(membros), _last_curated_at(colecao, membros, blocos))
     resultado["tier_labels"] = _tier_labels(colecao.tier_labels)
     resultado["settings"] = colecao.settings if isinstance(colecao.settings, dict) else {}
     resultado["members"] = resolve_members(db, membros)
@@ -723,6 +742,9 @@ def replace_members(
         db.query(CollectionMember).filter(CollectionMember.id.in_(removidos)).delete(
             synchronize_session=False
         )
+        # Remoção some com o updated_at da linha: toca a coleção para a
+        # "Última atualização em" refletir o editor.
+        c.updated_at = func.now()
     db.flush()
     return get_collection(db, collection_id=int(c.id), incluir_rascunhos=True)["members"]
 
@@ -783,5 +805,8 @@ def replace_blocks(
         db.query(CollectionBlock).filter(CollectionBlock.id.in_(removidos)).delete(
             synchronize_session=False
         )
+        # Mesmo motivo do replace_members: sem linha, não sobra updated_at
+        # para a tela mostrar.
+        c.updated_at = func.now()
     db.flush()
     return get_collection(db, collection_id=int(c.id), incluir_rascunhos=True)["blocks"]
