@@ -18,6 +18,7 @@ try:
         authors_proposition,
         candidacies,
         collection,
+        eleicoes_publicas,
         email_preferences,
         email_settings,
         share,
@@ -46,6 +47,7 @@ except ImportError:
         authors_proposition,
         candidacies,
         collection,
+        eleicoes_publicas,
         email_preferences,
         email_settings,
         share,
@@ -133,6 +135,9 @@ def create_app() -> FastAPI:
     api_router.include_router(collection.metrics_router)
     # Leitura pública de coleções publicadas: sem login, o link é compartilhável.
     api_router.include_router(collection.router)
+    # CS-162: página Eleições 2026 (pública sem login quando publicada) e o controle no admin.
+    api_router.include_router(eleicoes_publicas.public_router)
+    api_router.include_router(eleicoes_publicas.admin_router)
     api_router.include_router(events.router)
     api_router.include_router(email_settings.admin_router)
     # Imagens do e-mail: o cliente de e-mail busca sem login.
