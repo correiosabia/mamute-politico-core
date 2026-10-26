@@ -176,7 +176,14 @@ por município (`mamute_scrappers/tse_crawler/resultados_municipio.py`, cron
 | `parcial: true` enquanto houver município sem totalização | as frases ganham "Parcial: " |
 | Abstenção x margem e estimativa só sem `parcial` | com dado parcial a variação seria falsa |
 | Estimativa = `comparacao_turnos_estimativa` (Brasil e macrorregiões) | inferência estatística calculada na coleta, não dado oficial |
+| `incerto: true` quando `proporcao_max - proporcao_min > 0,15` (CS-161) | faixa larga: a tela mostra em cinza para não ser citado |
 | `disponivel: false` sem tabelas ou sem 2º turno | janela do deploy antes da migration `cs160a1b2c3d4` |
+
+Estimativa (CS-161): cada linha parte do que as pesquisas de intenção de voto indicam
+(`mamute_scrappers/tse_crawler/dados/prior_transferencia_ele2026.json`, com fonte e peso),
+é ajustada pelo resultado de cada município, estimada por macrorregião e somada no Brasil.
+Troca de lado entre os finalistas vem quase toda da pesquisa: o resultado agregado só mostra
+o saldo. Depois de mudar o arquivo, rodar a coleta com `--recalcular`.
 
 A hora do TSE mostrada ignora o exterior: o TSE grava a hora desses arquivos no fuso
 de cada país. A API do IBGE não responde a IP de fora do Brasil (o servidor de prod

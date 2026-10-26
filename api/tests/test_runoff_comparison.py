@@ -28,7 +28,8 @@ DDL = [
     "create table tse_resultado_municipio_candidato (resultado_id integer, sqcand bigint, numero integer, "
     "nome_urna text, votos bigint)",
     "create table comparacao_turnos_estimativa (ciclo text, cargo_codigo integer, recorte text, chave text, "
-    "origem text, destino text, proporcao numeric, votos bigint, municipios integer, calculado_em timestamp)",
+    "origem text, destino text, proporcao numeric, votos bigint, municipios integer, calculado_em timestamp, "
+    "proporcao_min numeric, proporcao_max numeric, proporcao_prior numeric, fonte_prior text)",
 ]
 
 
@@ -91,9 +92,10 @@ def _popular(db: Session, *, parcial: bool = False, sem_exterior_t2: bool = Fals
         _municipio(db, "9", 2, "zz", None, False, {ALFA: 5, BETA: 5}, abstencao=90)
     db.execute(text(
         "insert into comparacao_turnos_estimativa values "
-        "('ele2026', 1, 'brasil', 'BR', '201', '101', 0.6, 19000, 5, '2026-10-26 01:00:00'), "
-        "('ele2026', 1, 'brasil', 'BR', '201', '102', 0.4, 13000, 5, '2026-10-26 01:00:00'), "
-        "('ele2026', 1, 'brasil', 'BR', 'abstencao', 'abstencao', 0.9, 135000, 5, '2026-10-26 01:00:00')"
+        "('ele2026', 1, 'brasil', 'BR', '201', '101', 0.6, 19000, 5, '2026-10-26 01:00:00', 0.55, 0.65, 0.5, 'Pesquisa X'), "
+        "('ele2026', 1, 'brasil', 'BR', '201', '102', 0.4, 13000, 5, '2026-10-26 01:00:00', 0.2, 0.6, 0.4, 'Pesquisa X'), "
+        "('ele2026', 1, 'brasil', 'BR', 'abstencao', 'abstencao', 0.9, 135000, 5, '2026-10-26 01:00:00', null, null, null, null), "
+        "('ele2026', 1, 'brasil', 'BR', 'outros_candidatos', '101', 0.4, 1000, 5, '2026-10-26 01:00:00', 0.35, 0.45, 0.4, null)"
     ))
     db.commit()
 
@@ -259,3 +261,17 @@ def test_hora_do_tse_ignora_o_exterior(db: Session) -> None:
     db.execute(text("update tse_resultado_municipio set tse_atualizado_em = '2026-10-26 13:05:23' where uf = 'zz'"))
     db.commit()
     assert runoff_comparison(db)["situacao"]["tse_atualizado_em"].startswith("2026-10-25")
+
+
+def test_estimativa_traz_faixa_prior_fonte_e_incerto(db: Session) -> None:
+    linhas = runoff_comparison(db)["estimativa"]["recortes"][0]["linhas"]
+    firme = next(l for l in linhas if l["origem"] == str(GAMA) and l["destino"] == str(ALFA))
+    assert (firme["proporcao_min"], firme["proporcao_max"]) == (pytest.approx(0.55), pytest.approx(0.65))
+    assert firme["proporcao_prior"] == pytest.approx(0.5) and firme["fonte_prior"] == "Pesquisa X"
+    assert firme["incerto"] is False
+    larga = next(l for l in linhas if l["origem"] == str(GAMA) and l["destino"] == str(BETA))
+    assert larga["incerto"] is True
+    sem_faixa = next(l for l in linhas if l["origem"] == "abstencao")
+    assert sem_faixa["proporcao_min"] is None and sem_faixa["incerto"] is False
+    outros = next(l for l in linhas if l["origem"] == "outros_candidatos")
+    assert outros["origem_nome"] == "Outros candidatos"
