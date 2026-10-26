@@ -43,6 +43,8 @@ def _servicos(monkeypatch):
         lambda db: {"disponivel": True, "recortes": [], "destaques": [{"texto": "interno"}]},
     )
     monkeypatch.setattr(rota, "votacao_horario", lambda db: {"disponivel": True, "municipios": []})
+    monkeypatch.setattr(rota, "municipios_resultado", lambda db: {"disponivel": True, "municipios": []})
+    monkeypatch.setattr(rota, "locais_resultado", lambda db, w, s, e, n: {"locais": [[w, s, e, n]], "truncado": False})
     monkeypatch.setattr(
         rota, "locais_do_municipio",
         lambda db, uf, mu: {"municipio": {"uf": uf, "municipio": mu}, "locais": []} if mu == 71072 else None,
@@ -160,3 +162,20 @@ def test_resposta_grande_vem_comprimida(db: Session, monkeypatch) -> None:
     resp = _cliente(db, admin=True).get("/api/admin/votacao-horario", headers={"Accept-Encoding": "gzip"})
     assert resp.status_code == 200
     assert resp.headers.get("content-encoding") == "gzip"
+
+
+def test_mapa_resultado_segue_o_estado_da_pagina(db: Session) -> None:
+    cliente = _cliente(db, publico=True)
+    url = "/api/public/eleicoes-2026/mapa-resultado/locais?w=-48.6&s=-27.7&e=-48.4&n=-27.5"
+    assert cliente.get("/api/public/eleicoes-2026/mapa-resultado/municipios").status_code == 404
+    assert cliente.get(url).status_code == 404
+    definir_estado(db, "eleicoes_2026", "publica", "admin@mamute.com")
+    assert cliente.get("/api/public/eleicoes-2026/mapa-resultado/municipios").json()["disponivel"] is True
+    assert cliente.get(url).json()["locais"] == [[-48.6, -27.7, -48.4, -27.5]]
+
+
+def test_mapa_resultado_admin(db: Session) -> None:
+    cliente = _cliente(db, admin=True)
+    assert cliente.get("/api/admin/mapa-resultado/municipios").status_code == 200
+    assert cliente.get("/api/admin/mapa-resultado/locais?w=-48.6&s=-27.7&e=-48.4&n=-27.5").status_code == 200
+    assert cliente.get("/api/admin/mapa-resultado/locais").status_code == 422

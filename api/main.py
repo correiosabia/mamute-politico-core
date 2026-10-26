@@ -145,6 +145,8 @@ def create_app() -> FastAPI:
     api_router.include_router(eleicoes_publicas.admin_router)
     # CS-163: votos depois das 17h no admin (a versão pública vai no public_router).
     api_router.include_router(eleicoes_publicas.admin_dados_router)
+    # CS-164: resultado por município e por local de votação (zoom dos mapas).
+    api_router.include_router(eleicoes_publicas.admin_mapa_router)
     api_router.include_router(events.router)
     api_router.include_router(email_settings.admin_router)
     # Imagens do e-mail: o cliente de e-mail busca sem login.

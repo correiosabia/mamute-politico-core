@@ -176,3 +176,32 @@ def test_gravar_substitui_a_eleicao_inteira():
     dados = db.execute(text("SELECT dados FROM votacao_horario_agregado WHERE nivel = 'brasil'")).scalar()
     assert json.loads(dados)["votos_apos_17"] == 30
     assert db.execute(text("SELECT count(*) FROM votacao_horario_local")).scalar() == 2
+
+
+# --- resultado por local de votação (CS-164) -----------------------------------------
+
+from mamute_scrappers.tse_crawler.votacao_horario_agregacao import gravar_resultado_local, resultado_por_local  # noqa: E402
+
+
+def test_resultado_por_local_soma_as_secoes_do_local():
+    secoes = SECOES + [_sec("sp", 71072, 1, 10, 9, 17, 0, {"13": 5, "22": 15, "branco": 2, "nulo": 3}, comp=25)]
+    linhas = {(l["uf"], l["local"]): l for l in resultado_por_local(secoes, CADASTRO)}
+    a = linhas[("sp", 10)]
+    # secoes 1, 2 e 9 sao do local 10
+    assert a["votos_13"] == 40 + 50 + 5 and a["votos_22"] == 60 + 50 + 15
+    assert a["validos"] == 220 and a["comparecimento"] == 225
+    assert a["nome"] == "EE A" and a["bairro"] == "Centro" and a["latitude"] == -23.5
+    assert len(linhas) == 3
+
+
+def test_gravar_resultado_local_troca_a_eleicao():
+    db = _banco()
+    with db.get_bind().begin() as c:
+        c.execute(text("""CREATE TABLE resultado_local_votacao (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, eleicao TEXT, uf TEXT, municipio INTEGER, zona INTEGER,
+            local INTEGER, nome TEXT, bairro TEXT, latitude REAL, longitude REAL, comparecimento INTEGER,
+            validos INTEGER, votos_13 INTEGER, votos_22 INTEGER)"""))
+    linhas = resultado_por_local(SECOES, CADASTRO)
+    gravar_resultado_local(db, "2026-2t", linhas)
+    gravar_resultado_local(db, "2026-2t", linhas)
+    assert db.execute(text("SELECT count(*) FROM resultado_local_votacao")).scalar() == 3
