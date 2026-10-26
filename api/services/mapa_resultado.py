@@ -33,10 +33,15 @@ REFERENCIA = "2026-1t"
 LADO_MAXIMO = 3.0
 LIMITE_LOCAIS = 5000
 
-CAMPOS_MUNICIPIO = ["uf", "municipio", "nome", "lat", "lon", "v13", "v22", "validos", "v13_1t", "v22_1t", "validos_1t"]
+# Novos campos sempre no fim: o app lê pelo nome (`campos`), não pela posição.
+CAMPOS_MUNICIPIO = [
+    "uf", "municipio", "nome", "lat", "lon", "v13", "v22", "validos", "v13_1t", "v22_1t", "validos_1t",
+    "secoes", "comparecimento",
+]  # fmt: skip
 CAMPOS_LOCAL = [
     "uf", "municipio", "zona", "local", "nome", "bairro", "lat", "lon",
     "v13", "v22", "validos", "v13_1t", "v22_1t", "validos_1t",
+    "endereco", "secoes", "comparecimento",
 ]  # fmt: skip
 
 
@@ -58,7 +63,8 @@ def municipios_resultado(db: Session) -> Dict[str, Any]:
         return {"disponivel": False}
     linhas = db.execute(
         text(
-            "SELECT eleicao, uf, municipio, nome, latitude, longitude, dados FROM votacao_horario_agregado "
+            "SELECT eleicao, uf, municipio, nome, latitude, longitude, secoes, comparecimento, dados "
+            "FROM votacao_horario_agregado "
             "WHERE nivel = 'municipio' AND eleicao IN (:p, :r)"
         ),
         {"p": PRINCIPAL, "r": REFERENCIA},
@@ -74,7 +80,11 @@ def municipios_resultado(db: Session) -> Dict[str, Any]:
             continue
         p = _totais(m[PRINCIPAL].dados) if PRINCIPAL in m else [None, None, None]
         r = _totais(m[REFERENCIA].dados) if REFERENCIA in m else [None, None, None]
-        saida.append([uf.upper(), mu, _nome_proprio(base.nome), base.latitude, base.longitude, *p, *r])
+        atual = m.get(PRINCIPAL)
+        saida.append(
+            [uf.upper(), mu, _nome_proprio(base.nome), base.latitude, base.longitude, *p, *r,
+             atual.secoes if atual else None, atual.comparecimento if atual else None]
+        )  # fmt: skip
     return {"disponivel": bool(saida), "campos": CAMPOS_MUNICIPIO, "municipios": saida}
 
 
@@ -86,7 +96,8 @@ def locais_resultado(db: Session, w: float, s: float, e: float, n: float) -> Dic
     linhas = db.execute(
         text(
             "SELECT p.uf, p.municipio, p.zona, p.local, p.nome, p.bairro, p.latitude, p.longitude, "
-            "p.votos_13, p.votos_22, p.validos, r.votos_13 AS r13, r.votos_22 AS r22, r.validos AS rval "
+            "p.votos_13, p.votos_22, p.validos, r.votos_13 AS r13, r.votos_22 AS r22, r.validos AS rval, "
+            "p.endereco, p.secoes, p.comparecimento "
             "FROM resultado_local_votacao p "
             "LEFT JOIN resultado_local_votacao r ON r.eleicao = :r AND r.uf = p.uf AND r.municipio = p.municipio "
             "AND r.zona = p.zona AND r.local = p.local "
@@ -100,7 +111,7 @@ def locais_resultado(db: Session, w: float, s: float, e: float, n: float) -> Dic
         "campos": CAMPOS_LOCAL,
         "locais": [
             [l.uf.upper(), l.municipio, l.zona, l.local, l.nome, l.bairro, l.latitude, l.longitude,
-             l.votos_13, l.votos_22, l.validos, l.r13, l.r22, l.rval]
+             l.votos_13, l.votos_22, l.validos, l.r13, l.r22, l.rval, l.endereco, l.secoes, l.comparecimento]
             for l in linhas[:LIMITE_LOCAIS]
         ],
         "truncado": truncado,
