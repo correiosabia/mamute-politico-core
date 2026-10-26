@@ -252,3 +252,10 @@ def test_parcial_nao_afirma_quem_venceu() -> None:
     textos = [d["texto"] for d in runoff_comparison(s)["destaques"]]
     assert not any("venceu" in t for t in textos)
     assert not any("abstenção foi de" in t for t in textos)
+
+
+def test_hora_do_tse_ignora_o_exterior(db: Session) -> None:
+    # O TSE grava a hora dos arquivos do exterior no fuso de cada país (veio "no futuro" em 25/10/2026).
+    db.execute(text("update tse_resultado_municipio set tse_atualizado_em = '2026-10-26 13:05:23' where uf = 'zz'"))
+    db.commit()
+    assert runoff_comparison(db)["situacao"]["tse_atualizado_em"].startswith("2026-10-25")

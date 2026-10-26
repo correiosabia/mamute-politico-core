@@ -178,6 +178,11 @@ por município (`mamute_scrappers/tse_crawler/resultados_municipio.py`, cron
 | Estimativa = `comparacao_turnos_estimativa` (Brasil e macrorregiões) | inferência estatística calculada na coleta, não dado oficial |
 | `disponivel: false` sem tabelas ou sem 2º turno | janela do deploy antes da migration `cs160a1b2c3d4` |
 
+A hora do TSE mostrada ignora o exterior: o TSE grava a hora desses arquivos no fuso
+de cada país. A API do IBGE não responde a IP de fora do Brasil (o servidor de prod
+está na Europa): em 26/10/2026 `ibge_municipio` foi carregada a partir de uma máquina
+no Brasil, com o mesmo `parse_ibge` da coleta. Ela só precisa ser carregada uma vez.
+
 Os `destaques` são frases montadas por regra fixa (maiores ganhos por UF e
 região, onde o líder mudou, capital x interior, abstenção maior que a margem),
 neutras e iguais para os dois finalistas. Conferência: a soma do Brasil e de

@@ -426,7 +426,8 @@ def runoff_comparison(db: Session) -> dict[str, Any]:
         turno = int(l["turno"])
         situacao[turno]["municipios"] += 1
         situacao[turno]["totalizados"] += 1 if l["totalizacao_final"] else 0
-        if l["tse_atualizado_em"] is not None:
+        # O exterior vem com a hora local de cada país (Tóquio "no futuro"): fica de fora.
+        if l["tse_atualizado_em"] is not None and (l["uf"] or "").upper() != UF_EXTERIOR:
             iso = _iso(l["tse_atualizado_em"])
             atualizado = max(atualizado, iso) if atualizado else iso
         for tipo, chave, nome, uf in _recortes_da_linha(l):
