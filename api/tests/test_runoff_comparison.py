@@ -203,7 +203,7 @@ def test_parcial_segura_abstencao_estimativa_e_marca_frases() -> None:
     _popular(s, parcial=True)
     resp = runoff_comparison(s)
     assert resp["situacao"]["parcial"] is True
-    assert resp["situacao"]["turno2"] == {"municipios": 5, "totalizados": 4}
+    assert resp["situacao"]["turno2"] == {"municipios": 5, "totalizados": 4, "exterior": 1}
     assert resp["abstencao_x_margem"] == []
     assert resp["estimativa"]["recortes"] == []
     assert resp["destaques"] and all(d["texto"].startswith("Parcial: ") for d in resp["destaques"])
@@ -283,3 +283,9 @@ def test_estimativa_ordena_finalistas_candidatos_e_depois_grupos(db: Session) ->
     assert origens == [str(GAMA), "outros_candidatos", "abstencao"]
     destinos = list(dict.fromkeys(l["destino"] for l in linhas if l["origem"] == str(GAMA)))
     assert destinos == [str(BETA), str(ALFA)]
+
+
+def test_situacao_separa_municipios_do_brasil_e_do_exterior(db: Session) -> None:
+    situacao = runoff_comparison(db)["situacao"]
+    assert situacao["turno2"]["municipios"] == 5
+    assert situacao["turno2"]["exterior"] == 1

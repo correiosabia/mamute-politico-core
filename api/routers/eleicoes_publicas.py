@@ -9,7 +9,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+import time
+from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -36,6 +37,27 @@ public_router = APIRouter(prefix="/public/eleicoes-2026", tags=["public"])
 admin_router = APIRouter(prefix="/admin/pages", tags=["admin"])
 
 
+# A página pública pode ser compartilhada em massa e cada resposta agrega ~11 mil
+# municípios: cache curto por processo. O estado de publicação NÃO entra no
+# cache, então despublicar vale na hora.
+CACHE_SEGUNDOS = 120
+_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def limpar_cache() -> None:
+    _cache.clear()
+
+
+def _em_cache(nome: str, gerar: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    agora = time.monotonic()
+    guardado = _cache.get(nome)
+    if guardado and guardado[0] > agora:
+        return guardado[1]
+    valor = gerar()
+    _cache[nome] = (agora + CACHE_SEGUNDOS, valor)
+    return valor
+
+
 def _exige_publica(db: Session) -> None:
     if estado_da_pagina(db, PAGINA) != "publica":
         raise HTTPException(status_code=404, detail="Página não encontrada.")
@@ -44,13 +66,13 @@ def _exige_publica(db: Session) -> None:
 @public_router.get("/elected-profile")
 def perfil_publico(db: Session = Depends(get_db)) -> dict[str, Any]:
     _exige_publica(db)
-    return elected_profile(db)
+    return _em_cache("perfil", lambda: elected_profile(db))
 
 
 @public_router.get("/runoff-comparison")
 def comparacao_publica(db: Session = Depends(get_db)) -> dict[str, Any]:
     _exige_publica(db)
-    return {**runoff_comparison(db), "destaques": []}
+    return _em_cache("comparacao", lambda: {**runoff_comparison(db), "destaques": []})
 
 
 class EstadoIn(BaseModel):

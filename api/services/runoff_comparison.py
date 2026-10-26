@@ -469,13 +469,18 @@ def runoff_comparison(db: Session) -> dict[str, Any]:
     if len(finalistas) < 2:
         return _vazio()
 
-    situacao: Dict[int, Dict[str, int]] = {1: {"municipios": 0, "totalizados": 0}, 2: {"municipios": 0, "totalizados": 0}}
+    # `municipios` conta as localidades do exterior (UF ZZ); `exterior` diz quantas são.
+    situacao: Dict[int, Dict[str, int]] = {
+        1: {"municipios": 0, "totalizados": 0, "exterior": 0},
+        2: {"municipios": 0, "totalizados": 0, "exterior": 0},
+    }
     atualizado = None
     recortes: Dict[tuple[str, str], _Recorte] = {}
     for l in linhas:
         turno = int(l["turno"])
         situacao[turno]["municipios"] += 1
         situacao[turno]["totalizados"] += 1 if l["totalizacao_final"] else 0
+        situacao[turno]["exterior"] += 1 if (l["uf"] or "").upper() == UF_EXTERIOR else 0
         # O exterior vem com a hora local de cada país (Tóquio "no futuro"): fica de fora.
         if l["tse_atualizado_em"] is not None and (l["uf"] or "").upper() != UF_EXTERIOR:
             iso = _iso(l["tse_atualizado_em"])

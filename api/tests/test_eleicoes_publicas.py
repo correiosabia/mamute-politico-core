@@ -44,9 +44,11 @@ def _servicos(monkeypatch):
     )
 
 
-def _cliente(db: Session, *, admin: bool = False) -> TestClient:
+def _cliente(db: Session, *, admin: bool = False, publico: bool = False) -> TestClient:
     main.app.dependency_overrides[get_db] = lambda: db
-    main.app.dependency_overrides[verify_token] = lambda: None
+    # Rota pública: sem sobrescrever verify_token, para pegar se ela passar a exigir login.
+    if not publico:
+        main.app.dependency_overrides[verify_token] = lambda: None
     if admin:
         main.app.dependency_overrides[require_ghost_admin] = lambda: "admin@mamute.com"
     return TestClient(main.app)
@@ -54,8 +56,10 @@ def _cliente(db: Session, *, admin: bool = False) -> TestClient:
 
 @pytest.fixture(autouse=True)
 def _limpa():
+    rota.limpar_cache()
     yield
     main.app.dependency_overrides.clear()
+    rota.limpar_cache()
 
 
 def test_sem_linha_e_sem_tabela_e_so_admin() -> None:
@@ -71,14 +75,14 @@ def test_definir_e_ler_estado(db: Session) -> None:
 
 
 def test_rotas_publicas_404_enquanto_so_admin(db: Session) -> None:
-    cliente = _cliente(db)
+    cliente = _cliente(db, publico=True)
     assert cliente.get("/api/public/eleicoes-2026/elected-profile").status_code == 404
     assert cliente.get("/api/public/eleicoes-2026/runoff-comparison").status_code == 404
 
 
 def test_rotas_publicas_abrem_quando_publica_e_sem_destaques(db: Session) -> None:
     definir_estado(db, "eleicoes_2026", "publica", "admin@mamute.com")
-    cliente = _cliente(db)
+    cliente = _cliente(db, publico=True)
     assert cliente.get("/api/public/eleicoes-2026/elected-profile").json() == {"ano": 2026, "casas": []}
     comparacao = cliente.get("/api/public/eleicoes-2026/runoff-comparison").json()
     assert comparacao["disponivel"] is True and comparacao["destaques"] == []
@@ -104,3 +108,21 @@ def test_admin_recusa_estado_e_pagina_desconhecidos(db: Session) -> None:
 def test_admin_404_para_quem_nao_e_admin(db: Session) -> None:
     cliente = _cliente(db)
     assert cliente.put("/api/admin/pages/eleicoes_2026", json={"estado": "publica"}).status_code == 404
+
+
+def test_rota_publica_usa_cache_curto(db: Session, monkeypatch) -> None:
+    chamadas = []
+    monkeypatch.setattr(rota, "runoff_comparison", lambda db: chamadas.append(1) or {"disponivel": True, "destaques": []})
+    definir_estado(db, "eleicoes_2026", "publica", "admin@mamute.com")
+    cliente = _cliente(db, publico=True)
+    cliente.get("/api/public/eleicoes-2026/runoff-comparison")
+    cliente.get("/api/public/eleicoes-2026/runoff-comparison")
+    assert len(chamadas) == 1
+
+
+def test_despublicar_vale_na_hora_mesmo_com_cache(db: Session) -> None:
+    definir_estado(db, "eleicoes_2026", "publica", "admin@mamute.com")
+    cliente = _cliente(db, publico=True)
+    assert cliente.get("/api/public/eleicoes-2026/runoff-comparison").status_code == 200
+    definir_estado(db, "eleicoes_2026", "admin", "admin@mamute.com")
+    assert cliente.get("/api/public/eleicoes-2026/runoff-comparison").status_code == 404
