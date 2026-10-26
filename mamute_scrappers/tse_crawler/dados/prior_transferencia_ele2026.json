@@ -1,0 +1,93 @@
+{
+  "descricao": "Ponto de partida (prior) da estimativa de transferencia de votos do 1o para o 2o turno de presidente em 2026. Cada linha: para onde pesquisas de intencao de voto do 2o turno, cruzadas pelo voto declarado no 1o, indicam que foi o eleitor daquela origem. Destinos: sqcand do finalista, brancos_nulos, abstencao. Nas pesquisas, 'branco, nulo ou nao vai votar' foi dividido em 75% brancos_nulos e 25% abstencao, e 'nao sabe' foi repartido entre os finalistas na proporcao das respostas. forca = peso do prior em relacao ao dado municipal (maior = mais confianca na pesquisa). Levantamento de 26/10/2026; nao houve boca de urna no 2o turno.",
+  "linhas": [
+    {
+      "origem": "280002542548",
+      "destinos": {
+        "280002542548": 0.96,
+        "280002551544": 0.01,
+        "brancos_nulos": 0.005,
+        "abstencao": 0.025
+      },
+      "forca": 2.0,
+      "fonte": "BTG/Nexus 10 a 12/10/2026 (98% dos eleitores de Lula repetem o voto), mais a troca de comparecimento entre turnos. Peso alto: o resultado por município não distingue troca de lado nos dois sentidos (as trocas se anulam no saldo), então esse número vem da pesquisa"
+    },
+    {
+      "origem": "280002551544",
+      "destinos": {
+        "280002542548": 0.01,
+        "280002551544": 0.96,
+        "brancos_nulos": 0.005,
+        "abstencao": 0.025
+      },
+      "forca": 2.0,
+      "fonte": "BTG/Nexus 10 a 12/10/2026 (98% dos eleitores de Flávio Bolsonaro repetem o voto), mais a troca de comparecimento entre turnos. Peso alto: o resultado por município não distingue troca de lado nos dois sentidos (as trocas se anulam no saldo), então esse número vem da pesquisa"
+    },
+    {
+      "origem": "280002551932",
+      "destinos": {
+        "280002542548": 0.24,
+        "280002551544": 0.53,
+        "brancos_nulos": 0.17,
+        "abstencao": 0.06
+      },
+      "forca": 0.03,
+      "fonte": "Média de PoderData/Aya (5 a 7/10), AtlasIntel (3 a 8/10), BTG/Nexus (10 a 12/10) e Quaest (10 a 13/10 e 17 a 20/10)"
+    },
+    {
+      "origem": "280002540694",
+      "destinos": {
+        "280002542548": 0.23,
+        "280002551544": 0.45,
+        "brancos_nulos": 0.24,
+        "abstencao": 0.08
+      },
+      "forca": 0.03,
+      "fonte": "Média de PoderData/Aya (5 a 7/10), AtlasIntel (3 a 8/10) e Quaest (10 a 13/10 e 17 a 20/10)"
+    },
+    {
+      "origem": "280002551547",
+      "destinos": {
+        "280002542548": 0.41,
+        "280002551544": 0.41,
+        "brancos_nulos": 0.13,
+        "abstencao": 0.05
+      },
+      "forca": 0.01,
+      "fonte": "Média de PoderData/Aya (5 a 7/10), AtlasIntel (3 a 8/10) e Quaest (10 a 13/10 e 17 a 20/10); os institutos divergem, peso baixo"
+    },
+    {
+      "origem": "outros_candidatos",
+      "destinos": {
+        "280002542548": 0.32,
+        "280002551544": 0.46,
+        "brancos_nulos": 0.16,
+        "abstencao": 0.06
+      },
+      "forca": 0.01,
+      "fonte": "BTG/Nexus 10 a 12/10/2026 (eleitores de outros candidatos somados)"
+    },
+    {
+      "origem": "brancos_nulos",
+      "destinos": {
+        "280002542548": 0.32,
+        "280002551544": 0.29,
+        "brancos_nulos": 0.33,
+        "abstencao": 0.06
+      },
+      "forca": 0.01,
+      "fonte": "Quaest 10 a 13/10 e 17 a 20/10/2026 e PoderData/Aya 5 a 7/10 (quem não votou em candidato no 1º turno); peso baixo"
+    },
+    {
+      "origem": "abstencao",
+      "destinos": {
+        "280002542548": 0.07,
+        "280002551544": 0.06,
+        "brancos_nulos": 0.02,
+        "abstencao": 0.85
+      },
+      "forca": 0.05,
+      "fonte": "Série de abstenção do TSE 2006 a 2022 (a maioria de quem falta no 1º turno falta no 2º) e divisão de Quaest e PoderData entre quem não votou e pretendia votar"
+    }
+  ]
+}

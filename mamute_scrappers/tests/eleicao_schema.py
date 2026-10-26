@@ -89,7 +89,9 @@ DDL = [
     """CREATE TABLE comparacao_turnos_estimativa (
         ciclo TEXT NOT NULL, cargo_codigo INTEGER NOT NULL, recorte TEXT NOT NULL,
         chave TEXT NOT NULL, origem TEXT NOT NULL, destino TEXT NOT NULL,
-        proporcao NUMERIC NOT NULL, votos BIGINT NOT NULL, municipios INTEGER NOT NULL,
+        proporcao NUMERIC NOT NULL, proporcao_min NUMERIC, proporcao_max NUMERIC,
+        proporcao_prior NUMERIC, fonte_prior TEXT,
+        votos BIGINT NOT NULL, municipios INTEGER NOT NULL,
         calculado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (ciclo, cargo_codigo, recorte, chave, origem, destino))""",
 ]

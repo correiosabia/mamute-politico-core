@@ -282,6 +282,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--refazer", action="store_true", help="Rebaixa tambem os ja totalizados.")
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     parser.add_argument("--cargo", type=int, default=CARGO_PRESIDENTE)
+    parser.add_argument(
+        "--recalcular", action="store_true",
+        help="Refaz a estimativa de transferencia mesmo sem arquivo novo (ex.: depois de mudar o prior).",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
 
@@ -307,9 +311,15 @@ def main(argv: Iterable[str] | None = None) -> int:
             session, base=base, ciclo=ciclo, cargo=args.cargo, refazer=args.refazer, workers=args.workers
         )
         logger.info("Resultado por municipio %s: %s", ciclo, stats.resumo())
-        # Barato (numpy sobre ~5,7 mil linhas) e so grava com tudo totalizado.
-        gravadas = calcular_estimativas(session, ciclo=ciclo, cargo=args.cargo)
-        logger.info("Estimativa de transferencia: %s linhas", gravadas)
+        # O bootstrap leva cerca de 1 minuto: so refaz quando chegou arquivo novo,
+        # quando ainda nao ha estimativa ou com --recalcular.
+        existentes = session.execute(
+            text("SELECT count(*) FROM comparacao_turnos_estimativa WHERE ciclo = :c AND cargo_codigo = :g"),
+            {"c": ciclo, "g": args.cargo},
+        ).scalar()
+        if args.recalcular or stats.baixados or not existentes:
+            gravadas = calcular_estimativas(session, ciclo=ciclo, cargo=args.cargo)
+            logger.info("Estimativa de transferencia: %s linhas", gravadas)
     finally:
         session.close()
     return 0

@@ -55,7 +55,15 @@ UFS: Dict[str, tuple[str, str]] = {
 
 MACRO_PREPOSICAO = {"Norte": "No", "Nordeste": "No", "Sudeste": "No", "Sul": "No", "Centro-Oeste": "No"}
 
-ROTULOS = {"demais": "Demais candidatos", "brancos_nulos": "Brancos e nulos", "abstencao": "Abstenção"}
+ROTULOS = {
+    "demais": "Demais candidatos",
+    "outros_candidatos": "Outros candidatos",
+    "brancos_nulos": "Brancos e nulos",
+    "abstencao": "Abstenção",
+}
+# CS-161: faixa (p5 a p95 + sensibilidade ao peso da pesquisa) mais larga que
+# isto = número incerto; a tela mostra em cinza para não ser citado.
+FAIXA_INCERTA = 0.15
 
 
 def _tabela_existe(db: Session, tabela: str) -> bool:
@@ -63,6 +71,18 @@ def _tabela_existe(db: Session, tabela: str) -> bool:
         return sqlalchemy_inspect(db.get_bind()).has_table(tabela)
     except SQLAlchemyError:
         return False
+
+
+def _tem_coluna(db: Session, tabela: str, coluna: str) -> bool:
+    try:
+        colunas = sqlalchemy_inspect(db.get_bind()).get_columns(tabela)
+    except SQLAlchemyError:
+        return False
+    return any(c.get("name") == coluna for c in colunas)
+
+
+def _float(valor: Any) -> Optional[float]:
+    return None if valor is None else float(valor)
 
 
 def _iso(valor: Any) -> Optional[str]:
@@ -365,10 +385,16 @@ def _destaques(
 def _estimativa(db: Session, nomes: Dict[int, str]) -> dict[str, Any]:
     if not _tabela_existe(db, "comparacao_turnos_estimativa"):
         return {"calculado_em": None, "recortes": []}
+    tem_faixa = _tem_coluna(db, "comparacao_turnos_estimativa", "proporcao_min")
+    extras = (
+        "proporcao_min, proporcao_max, proporcao_prior, fonte_prior"
+        if tem_faixa
+        else "NULL AS proporcao_min, NULL AS proporcao_max, NULL AS proporcao_prior, NULL AS fonte_prior"
+    )
     rows = db.execute(
         text(
-            """
-            SELECT recorte, chave, origem, destino, proporcao, votos, municipios, calculado_em
+            f"""
+            SELECT recorte, chave, origem, destino, proporcao, votos, municipios, calculado_em, {extras}
               FROM comparacao_turnos_estimativa
              WHERE ciclo = :ciclo AND cargo_codigo = :cargo
              ORDER BY CASE recorte WHEN 'brasil' THEN 0 ELSE 1 END, chave
@@ -396,6 +422,15 @@ def _estimativa(db: Session, nomes: Dict[int, str]) -> dict[str, Any]:
                 "destino": r.destino,
                 "destino_nome": rotulo(r.destino),
                 "proporcao": float(r.proporcao),
+                "proporcao_min": _float(r.proporcao_min),
+                "proporcao_max": _float(r.proporcao_max),
+                "proporcao_prior": _float(r.proporcao_prior),
+                "fonte_prior": r.fonte_prior,
+                "incerto": (
+                    r.proporcao_min is not None
+                    and r.proporcao_max is not None
+                    and float(r.proporcao_max) - float(r.proporcao_min) > FAIXA_INCERTA
+                ),
                 "votos": int(r.votos),
             }
         )
