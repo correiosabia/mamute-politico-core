@@ -125,6 +125,12 @@ PYTHONPATH=/app
 # do domingo da votação. Roda uma vez; o 1º turno foi registrado em 05/10.
 5 20 25 10 * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh selecao-turno-2 -- /usr/local/bin/python -m mamute_scrappers.scripts.selecao_por_turno --turno 2 >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# CS-160: resultado de presidente por município nos dois turnos (comparação entre turnos no admin).
+# Separado do resultado-eleicao para uma falha aqui não segurar o e-mail. Barato depois que tudo
+# totaliza (pula o que já fechou); a estimativa de transferência só grava com tudo totalizado.
+# Pode sair depois de nov/2026.
+*/30 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh resultado-municipio -- /usr/local/bin/python -m mamute_scrappers.tse_crawler.resultados_municipio >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # --- Relatórios por e-mail (provedor definido por MAIL_PROVIDER; hoje: Mailgun) ---
 # Uma linha por periodicidade: CADA job roda no seu horário e só envia aos projetos
 # cujo tier tem aquela periodicidade em `tiers.detalhes.periodicidade_email`. Assim
