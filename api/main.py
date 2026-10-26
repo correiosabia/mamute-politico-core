@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 try:
     # Permite execução como pacote (api.main).
@@ -124,6 +125,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Respostas grandes (lista de cidades da CS-163, painéis do admin) vão
+    # comprimidas quando o cliente aceita. A API não tem streaming.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     auth_dependencies = [Depends(verify_token)]
 

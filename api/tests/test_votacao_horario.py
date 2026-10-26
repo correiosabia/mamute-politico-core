@@ -106,9 +106,12 @@ def test_municipios_so_com_voto_depois_das_17h_e_base_do_1o_turno():
     m = r["municipios"][0]
     assert m["nome"] == "São Paulo" and m["uf"] == "SP"
     assert m["latitude"] == -23.5
-    assert m["base"]["2026-1t"] == {"votos_apos_17": 8, "comparecimento": 500, "apos_17_pct": 1.6}
-    # a lista é enxuta: curva e divisões ficam no detalhe da cidade
-    assert "curva" not in m and "apos_17_proporcional" not in m
+    # a lista é enxuta: o resto fica no detalhe da cidade
+    assert set(m) == {
+        "uf", "municipio", "nome", "latitude", "longitude", "votos_apos_17", "apos_17_pct", "apos_19",
+        "secoes_voto_apos_17", "ultimo_voto", "base",
+    }
+    assert m["base"]["2026-1t"] == {"apos_17_pct": 1.6}
 
 
 def test_locais_do_municipio():
