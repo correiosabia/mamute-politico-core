@@ -259,3 +259,50 @@ def gravar(db, eleicao: str, agregados: List[dict], locais: List[dict]) -> None:
             ],
         )  # fmt: skip
     db.commit()
+
+
+# --- resultado por local de votacao (CS-164) -------------------------------------------
+# Os mapas de resultado mostram, no zoom de cidade, um ponto por local de votacao
+# (escola). Vem do mesmo BU: soma das secoes do local. Finalistas 13 e 22.
+
+FINALISTAS = ("13", "22")
+
+
+def resultado_por_local(
+    secoes: Iterable[SecaoBu], cadastro: Dict[Tuple[str, int, int, int], LocalCadastro]
+) -> List[dict]:
+    locais: Dict[Tuple[str, int, int, int], dict] = {}
+    for s in secoes:
+        chave = (s.uf, s.municipio, s.zona, s.local)
+        l = locais.get(chave)
+        if l is None:
+            c = cadastro.get(chave)
+            l = {
+                "uf": s.uf, "municipio": s.municipio, "zona": s.zona, "local": s.local,
+                "nome": c.nome if c else None, "bairro": c.bairro if c else None,
+                "latitude": c.latitude if c else None, "longitude": c.longitude if c else None,
+                "comparecimento": 0, "validos": 0, "votos_13": 0, "votos_22": 0,
+            }  # fmt: skip
+            locais[chave] = l
+        l["comparecimento"] += s.comparecimento
+        l["validos"] += sum(v for k, v in s.votos.items() if k not in ("branco", "nulo"))
+        l["votos_13"] += s.votos.get(FINALISTAS[0], 0)
+        l["votos_22"] += s.votos.get(FINALISTAS[1], 0)
+    return [locais[k] for k in sorted(locais)]
+
+
+def gravar_resultado_local(db, eleicao: str, linhas: List[dict]) -> None:
+    """Troca os locais da eleicao em `resultado_local_votacao`."""
+    from sqlalchemy import text
+
+    db.execute(text("DELETE FROM resultado_local_votacao WHERE eleicao = :e"), {"e": eleicao})
+    if linhas:
+        db.execute(
+            text(
+                "INSERT INTO resultado_local_votacao (eleicao, uf, municipio, zona, local, nome, bairro, latitude, "
+                "longitude, comparecimento, validos, votos_13, votos_22) VALUES (:eleicao, :uf, :municipio, :zona, "
+                ":local, :nome, :bairro, :latitude, :longitude, :comparecimento, :validos, :votos_13, :votos_22)"
+            ),
+            [{"eleicao": eleicao, **l} for l in linhas],
+        )
+    db.commit()

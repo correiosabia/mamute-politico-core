@@ -5,6 +5,8 @@
   ferramenta interna para o e-mail).
 * `/admin/pages/{chave}`: o admin lê e muda o estado (`admin` | `publica`).
   Gate igual ao resto do painel (404 para não admin).
+* Resultado por município e por local de votação (CS-164):
+  `/admin/mapa-resultado/{municipios,locais}` e as versões públicas.
 * Votos depois das 17h (CS-163): `/admin/votacao-horario` e a versão
   pública, mais o detalhe por município (`/{uf}/{municipio}`, locais de
   votação). Os dados são públicos do TSE; a versão pública é igual à do admin.
@@ -25,6 +27,7 @@ try:
     from ..services.elected_profile import elected_profile
     from ..services.pagina_publicacao import PAGINAS, definir_estado, estado_da_pagina
     from ..services.runoff_comparison import runoff_comparison
+    from ..services.mapa_resultado import locais_resultado, municipios_resultado
     from ..services.votacao_horario import locais_do_municipio, votacao_horario
     from .admin import _log_admin_action
 except ImportError:  # execução dentro de api/
@@ -33,6 +36,7 @@ except ImportError:  # execução dentro de api/
     from services.elected_profile import elected_profile
     from services.pagina_publicacao import PAGINAS, definir_estado, estado_da_pagina
     from services.runoff_comparison import runoff_comparison
+    from services.mapa_resultado import locais_resultado, municipios_resultado
     from services.votacao_horario import locais_do_municipio, votacao_horario
     from routers.admin import _log_admin_action
 
@@ -41,6 +45,7 @@ PAGINA = "eleicoes_2026"
 public_router = APIRouter(prefix="/public/eleicoes-2026", tags=["public"])
 admin_router = APIRouter(prefix="/admin/pages", tags=["admin"])
 admin_dados_router = APIRouter(prefix="/admin/votacao-horario", tags=["admin"])
+admin_mapa_router = APIRouter(prefix="/admin/mapa-resultado", tags=["admin"])
 
 
 # A página pública pode ser compartilhada em massa e cada resposta agrega ~11 mil
@@ -116,6 +121,47 @@ def locais_admin(
     _admin: str = Depends(require_ghost_admin),
 ) -> dict[str, Any]:
     return _locais_ou_404(db, uf, municipio)
+
+
+# CS-164: resultado por município e por local de votação, para o zoom dos mapas.
+
+
+def _area(w: float, s: float, e: float, n: float) -> tuple[float, float, float, float]:
+    # Arredonda para o cache servir a quem olha a mesma região.
+    return round(w, 2), round(s, 2), round(e, 2), round(n, 2)
+
+
+@public_router.get("/mapa-resultado/municipios")
+def mapa_municipios_publico(db: Session = Depends(get_db)) -> dict[str, Any]:
+    _exige_publica(db)
+    return _em_cache("mapa_municipios", lambda: municipios_resultado(db))
+
+
+@public_router.get("/mapa-resultado/locais")
+def mapa_locais_publico(w: float, s: float, e: float, n: float, db: Session = Depends(get_db)) -> dict[str, Any]:
+    _exige_publica(db)
+    area = _area(w, s, e, n)
+    return _em_cache(f"mapa_locais:{area}", lambda: locais_resultado(db, *area))
+
+
+@admin_mapa_router.get("/municipios")
+def mapa_municipios_admin(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    return municipios_resultado(db)
+
+
+@admin_mapa_router.get("/locais")
+def mapa_locais_admin(
+    w: float,
+    s: float,
+    e: float,
+    n: float,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    return locais_resultado(db, *_area(w, s, e, n))
 
 
 class EstadoIn(BaseModel):

@@ -578,7 +578,13 @@ def ler_logs(saida: Path, e: Eleicao, ufs: Sequence[str]) -> Dict[Tuple[str, int
 def carregar(e: Eleicao, saida: Path, ufs: Sequence[str], cadastro_csv: Path) -> None:
     from mamute_scrappers.db.session import get_session
     from mamute_scrappers.tse_crawler.candidacy import _load_env_file
-    from mamute_scrappers.tse_crawler.votacao_horario_agregacao import agregar, gravar, ler_cadastro
+    from mamute_scrappers.tse_crawler.votacao_horario_agregacao import (
+        agregar,
+        gravar,
+        gravar_resultado_local,
+        ler_cadastro,
+        resultado_por_local,
+    )
 
     turno = 1 if e.chave == "2026-1t" else 2
     cadastro = ler_cadastro(cadastro_csv, turno=turno)
@@ -590,6 +596,9 @@ def carregar(e: Eleicao, saida: Path, ufs: Sequence[str], cadastro_csv: Path) ->
     db = get_session()
     try:
         gravar(db, e.chave, agregados, locais)
+        if e.chave.startswith("2026"):
+            # CS-164: resultado de cada local de votacao, para o zoom dos mapas.
+            gravar_resultado_local(db, e.chave, resultado_por_local(secoes, cadastro))
     finally:
         db.close()
     br = agregados[0]
