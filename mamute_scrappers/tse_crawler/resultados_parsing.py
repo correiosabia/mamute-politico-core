@@ -305,3 +305,137 @@ def definicao_matematica(arquivo: ArquivoResultado, cargo: int) -> Optional[Dict
     if len(votos) > vagas and votos[vagas] + restante >= votos[vagas - 1]:
         return None
     return _monta(vagas, ELEITO)
+
+
+# --- CS-160: resultado por municipio -------------------------------------
+#
+# Lista: `<base>/<ciclo>/<eleicao>/config/mun-e<eleicao:06>-cm.json`, com
+# `abr[].cd` (UF; "zz" = exterior) e `abr[].mu[]`: `cd` (codigo TSE do
+# municipio), `cdi` (codigo IBGE, vazio no exterior), `nm`, `c` ("s" = capital).
+# Arquivo: `<base>/<ciclo>/<eleicao>/dados/<uf>/<uf><cd>-c<cargo:04>-e<eleicao:06>-u.json`,
+# mesmo formato do arquivo de UF, mais o resumo do eleitorado (`e`) e dos
+# votos (`v`). Conferido em 25/10/2026 (Florianopolis, sc81051).
+
+
+def municipios_url(base: str, ciclo: str, eleicao: int) -> str:
+    return f"{base.rstrip('/')}/{ciclo}/{eleicao}/config/mun-e{eleicao:06d}-cm.json"
+
+
+def municipio_file_url(base: str, ciclo: str, eleicao: int, uf: str, cd_tse: str, cargo: int) -> str:
+    uf = uf.lower()
+    return (
+        f"{base.rstrip('/')}/{ciclo}/{eleicao}/dados/{uf}/"
+        f"{uf}{cd_tse}-c{cargo:04d}-e{eleicao:06d}-u.json"
+    )
+
+
+@dataclass(frozen=True)
+class MunicipioTse:
+    uf: str
+    cd_tse: str
+    cd_ibge: Optional[int]
+    nome: str
+    capital: bool
+
+
+@dataclass(frozen=True)
+class VotoCandidato:
+    sqcand: int
+    numero: Optional[int]
+    nome_urna: str
+    votos: int
+
+
+@dataclass(frozen=True)
+class ResumoMunicipio:
+    final: bool
+    atualizado_em: Optional[datetime]
+    percentual_apurado: Optional[Decimal]
+    eleitorado: Optional[int]  # `e.te`
+    comparecimento: Optional[int]  # `e.c`
+    abstencao: Optional[int]  # `e.a`
+    brancos: Optional[int]  # `v.vb`
+    nulos: Optional[int]  # `v.tvn` = nulos + nulos tecnicos
+    validos: Optional[int]  # `v.vv`
+    candidatos: List[VotoCandidato] = field(default_factory=list)
+
+
+def parse_municipios(payload: dict) -> List[MunicipioTse]:
+    municipios: List[MunicipioTse] = []
+    for abr in payload.get("abr") or []:
+        uf = str(abr.get("cd") or "").strip().lower()
+        for mu in abr.get("mu") or []:
+            cd = str(mu.get("cd") or "").strip()
+            if not uf or not cd:
+                continue
+            municipios.append(
+                MunicipioTse(
+                    uf=uf,
+                    cd_tse=cd,
+                    cd_ibge=_parse_int(mu.get("cdi")),
+                    nome=str(mu.get("nm") or "").strip(),
+                    capital=(mu.get("c") or "").strip().lower() == "s",
+                )
+            )
+    return municipios
+
+
+def parse_resumo_municipio(payload: dict) -> ResumoMunicipio:
+    e = payload.get("e") or {}
+    v = payload.get("v") or {}
+    candidatos = []
+    for cand in _iter_candidatos(payload):
+        sqcand = _parse_int(cand.get("sqcand"))
+        if sqcand is None:
+            continue
+        candidatos.append(
+            VotoCandidato(
+                sqcand=sqcand,
+                numero=_parse_int(cand.get("n")),
+                nome_urna=(cand.get("nmu") or cand.get("nm") or "").strip(),
+                votos=_parse_int(cand.get("vap")) or 0,
+            )
+        )
+    return ResumoMunicipio(
+        final=(payload.get("tf") or "").strip().lower() == "s",
+        atualizado_em=_parse_timestamp(payload.get("dt"), payload.get("ht")),
+        percentual_apurado=_parse_percent((payload.get("s") or {}).get("pst")),
+        eleitorado=_parse_int(e.get("te")),
+        comparecimento=_parse_int(e.get("c")),
+        abstencao=_parse_int(e.get("a")),
+        brancos=_parse_int(v.get("vb")),
+        nulos=_parse_int(v.get("tvn")),
+        validos=_parse_int(v.get("vv")),
+        candidatos=candidatos,
+    )
+
+
+def parse_ibge(municipios: Iterable[dict]) -> List[Dict[str, Any]]:
+    """Linhas de `ibge_municipio` a partir da API de localidades do IBGE.
+
+    A UF vem da regiao imediata; municipio novo pode vir sem microrregiao
+    (Boa Esperanca do Norte/MT em 10/2026).
+    """
+    linhas: List[Dict[str, Any]] = []
+    for mu in municipios:
+        imediata = mu.get("regiao-imediata") or {}
+        intermediaria = imediata.get("regiao-intermediaria") or {}
+        uf = intermediaria.get("UF") or (
+            ((mu.get("microrregiao") or {}).get("mesorregiao") or {}).get("UF")
+        ) or {}
+        cd_ibge = _parse_int(mu.get("id"))
+        if cd_ibge is None or not uf.get("sigla"):
+            continue
+        linhas.append(
+            {
+                "cd_ibge": cd_ibge,
+                "nome": mu.get("nome") or "",
+                "uf": uf["sigla"],
+                "regiao_intermediaria_id": _parse_int(intermediaria.get("id")),
+                "regiao_intermediaria_nome": intermediaria.get("nome"),
+                "regiao_imediata_id": _parse_int(imediata.get("id")),
+                "regiao_imediata_nome": imediata.get("nome"),
+                "macrorregiao": (uf.get("regiao") or {}).get("nome"),
+            }
+        )
+    return linhas
