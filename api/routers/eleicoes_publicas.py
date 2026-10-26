@@ -7,6 +7,9 @@
   Gate igual ao resto do painel (404 para não admin).
 * Resultado por município e por local de votação (CS-164):
   `/admin/mapa-resultado/{municipios,locais}` e as versões públicas.
+* Métricas anônimas (CS-166): `POST /public/eleicoes-2026/events` (sempre 204;
+  só grava com a página pública e de quem não é robô) e o painel em
+  `/admin/pages/{chave}/metricas`.
 * Votos depois das 17h (CS-163): `/admin/votacao-horario` e a versão
   pública, mais o detalhe por município (`/{uf}/{municipio}`, locais de
   votação). Os dados são públicos do TSE; a versão pública é igual à do admin.
@@ -17,7 +20,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -29,7 +32,10 @@ try:
     from ..services.runoff_comparison import runoff_comparison
     from ..services.mapa_resultado import locais_resultado, municipios_resultado
     from ..services.votacao_horario import locais_do_municipio, votacao_horario
+    from ..services import collection_events as eventos
+    from ..services import page_events
     from .admin import _log_admin_action
+    from .collection import LoteEventosIn
 except ImportError:  # execução dentro de api/
     from dependencies import get_db
     from security import require_ghost_admin
@@ -38,7 +44,10 @@ except ImportError:  # execução dentro de api/
     from services.runoff_comparison import runoff_comparison
     from services.mapa_resultado import locais_resultado, municipios_resultado
     from services.votacao_horario import locais_do_municipio, votacao_horario
+    from services import collection_events as eventos
+    from services import page_events
     from routers.admin import _log_admin_action
+    from routers.collection import LoteEventosIn
 
 PAGINA = "eleicoes_2026"
 
@@ -168,6 +177,28 @@ class EstadoIn(BaseModel):
     estado: Literal["admin", "publica"]
 
 
+@public_router.post("/events", status_code=204)
+def gravar_eventos(lote: LoteEventosIn, request: Request, db: Session = Depends(get_db)) -> Response:
+    """Métricas anônimas da página (CS-166). Sempre 204: o navegador não espera
+    resposta, e quem envia lixo não descobre o que foi aceito."""
+    user_agent = request.headers.get("user-agent")
+    if not eventos.eh_robo(user_agent) and estado_da_pagina(db, PAGINA) == "publica":
+        page_events.grava_lote(
+            db,
+            pagina=PAGINA,
+            visitor=lote.visitor,
+            session_id=lote.session,
+            eventos=[e.model_dump() for e in lote.events],
+            user_agent=user_agent,
+            ip=eventos.ip_do_cliente(
+                request.headers.get("x-forwarded-for"), request.client.host if request.client else None
+            ),
+            referrer=lote.referrer,
+            utm=lote.utm.model_dump(),
+        )
+    return Response(status_code=204)
+
+
 def _pagina_conhecida(chave: str) -> None:
     if chave not in PAGINAS:
         raise HTTPException(status_code=404, detail="Página não encontrada.")
@@ -181,6 +212,18 @@ def ler_estado(
 ) -> dict[str, str]:
     _pagina_conhecida(chave)
     return {"chave": chave, "estado": estado_da_pagina(db, chave)}
+
+
+@admin_router.get("/{chave}/metricas")
+def ler_metricas(
+    chave: str,
+    dias: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    if chave not in page_events.PAGINAS_COM_METRICAS:
+        raise HTTPException(status_code=404, detail="Página não encontrada.")
+    return page_events.metricas_da_pagina(db, chave, dias)
 
 
 @admin_router.put("/{chave}")
