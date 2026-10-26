@@ -382,7 +382,18 @@ def _destaques(
     return frases
 
 
-def _estimativa(db: Session, nomes: Dict[int, str]) -> dict[str, Any]:
+GRUPOS_NO_FIM = ("outros_candidatos", "demais", "brancos_nulos", "abstencao")
+
+
+def _posicao(chave: str, ordem_candidatos: List[int]) -> tuple[int, int]:
+    """Finalistas e candidatos na ordem dada (votos), depois os grupos fixos."""
+    if chave in GRUPOS_NO_FIM:
+        return (1, GRUPOS_NO_FIM.index(chave))
+    sq = int(chave) if chave.isdigit() else None
+    return (0, ordem_candidatos.index(sq) if sq in ordem_candidatos else len(ordem_candidatos))
+
+
+def _estimativa(db: Session, nomes: Dict[int, str], ordem_candidatos: List[int]) -> dict[str, Any]:
     if not _tabela_existe(db, "comparacao_turnos_estimativa"):
         return {"calculado_em": None, "recortes": []}
     tem_faixa = _tem_coluna(db, "comparacao_turnos_estimativa", "proporcao_min")
@@ -435,6 +446,10 @@ def _estimativa(db: Session, nomes: Dict[int, str]) -> dict[str, Any]:
             }
         )
         calculado_em = calculado_em or _iso(r.calculado_em)
+    for bloco in recortes.values():
+        bloco["linhas"].sort(
+            key=lambda l: (_posicao(l["origem"], ordem_candidatos), _posicao(l["destino"], ordem_candidatos))
+        )
     return {"calculado_em": calculado_em, "recortes": list(recortes.values())}
 
 
@@ -499,7 +514,15 @@ def runoff_comparison(db: Session) -> dict[str, Any]:
                 }
             )
 
-    estimativa = _estimativa(db, nomes) if not parcial else {"calculado_em": None, "recortes": []}
+    brasil = recortes.get(("brasil", "BR"))
+    votos_t1 = brasil.turnos[1].votos if brasil else {}
+    # Finalistas primeiro (ordem do 2º turno), depois os outros pelo voto no 1º.
+    ordem_candidatos = finalistas + [
+        sq for sq, _ in sorted(votos_t1.items(), key=lambda kv: -kv[1]) if sq not in finalistas
+    ]
+    estimativa = (
+        _estimativa(db, nomes, ordem_candidatos) if not parcial else {"calculado_em": None, "recortes": []}
+    )
 
     return {
         "disponivel": True,

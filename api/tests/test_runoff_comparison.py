@@ -275,3 +275,11 @@ def test_estimativa_traz_faixa_prior_fonte_e_incerto(db: Session) -> None:
     assert sem_faixa["proporcao_min"] is None and sem_faixa["incerto"] is False
     outros = next(l for l in linhas if l["origem"] == "outros_candidatos")
     assert outros["origem_nome"] == "Outros candidatos"
+
+
+def test_estimativa_ordena_finalistas_candidatos_e_depois_grupos(db: Session) -> None:
+    linhas = runoff_comparison(db)["estimativa"]["recortes"][0]["linhas"]
+    origens = list(dict.fromkeys(l["origem"] for l in linhas))
+    assert origens == [str(GAMA), "outros_candidatos", "abstencao"]
+    destinos = list(dict.fromkeys(l["destino"] for l in linhas if l["origem"] == str(GAMA)))
+    assert destinos == [str(BETA), str(ALFA)]
