@@ -212,6 +212,29 @@ O estado mora em `pagina_publicacao` (migration `cs162a1b2c3d4`); sem linha ou s
 Não é feature flag de propósito: `useFeatureFlag` no app só consulta com token, então visitante sem
 login veria sempre "desligado".
 
+## Votos depois das 17h (CS-163)
+
+Aba "Votos depois das 17h" da página Eleições 2026: no 2º turno de 2026 a votação foi prorrogada até
+as 19h nas seções ainda abertas. Os dados saem dos arquivos de urna do TSE (ver o README do
+`mamute_scrappers`, "Votos depois das 17h") e ficam em `votacao_horario_agregado` e
+`votacao_horario_local` (migration `cs163a1b2c3d4`). Regras em `services/votacao_horario.py`.
+
+| Rota | Quem | O quê |
+|---|---|---|
+| `GET /api/admin/votacao-horario` | admin | Brasil, UF e cidades com voto depois das 17h, nas eleições carregadas |
+| `GET /api/admin/votacao-horario/{uf}/{municipio}` | admin | locais de votação da cidade (escola, bairro, zona, coordenadas); 404 se a cidade não teve voto depois das 17h |
+| `GET /api/public/eleicoes-2026/votacao-horario[/{uf}/{municipio}]` | qualquer um, sem login | iguais às do admin; 404 enquanto a página é "só admin"; cache de 120 s |
+
+| Campo | Regra |
+|---|---|
+| `votos_apos_17` | medido no log das seções lidas (todas as que encerraram às 17h05 ou depois + amostra das outras) |
+| `apos_17_total_estimado` | medido + estimativa das seções não lidas, pela taxa da amostra |
+| `margem` | diferença entre os números 13 e 22 no recorte (`vencedor` = número) |
+| `poderia_inverter` | `apos_17_total_estimado >= margem.votos`: o teste do pior caso (todos os votos tardios para quem venceu). Não diz em quem os votos foram |
+| `base` (cidades) | a mesma conta no 1º turno de 2026 e no 2º de 2022, as referências sem prorrogação |
+
+Eleições: `2026-2t` (principal), `2026-1t` e `2022-2t`. Tabela vazia ou ausente = `{disponivel: false}`.
+
 ## Coleções curadas (CS-132)
 
 Página editada pelo admin que reúne pessoas em torno de um tema, com blocos de

@@ -259,6 +259,41 @@ WHERE link ILIKE '%camara.leg.br%' AND presentation_date >= '2023-02-01'
 GROUP BY 1 ORDER BY 2 DESC;
 ```
 
+### Votos depois das 17h (arquivos de urna do TSE) — CS-163
+
+Coleta avulsa, sem cron: mede, seção por seção, quantos votos entraram depois das 17h no 2º turno
+de 2026 (votação prorrogada até as 19h) e nas referências sem prorrogação (1º turno de 2026 e 2º
+turno de 2022). Código em `tse_crawler/votacao_horario.py` (coleta e carga),
+`urna_parsing.py` (leitura do BU e do log) e `votacao_horario_agregacao.py`.
+
+| Etapa | O quê | Fonte |
+|---|---|---|
+| `bu` | boletim de urna de todas as seções: abertura, encerramento, local, comparecimento, votos de presidente | 2026-2t: `resultados.tse.jus.br/.../arquivo-urna/3221`, um pedido por seção; 2026-1t e 2022-2t: pacote por UF do Dados Abertos (`cdn.tse.jus.br/.../arqurnatot`), lido por faixa de bytes |
+| `log` | hora de cada voto no log da urna, nas seções que encerraram às 17h05 ou depois e numa amostra de ~3% das outras | mesma fonte |
+| `carregar` | agrega Brasil, UF, município e local e troca a eleição inteira no banco | JSONL das etapas anteriores + cadastro de locais de votação (`eleitorado_local_votacao_2026.zip`) |
+
+```bash
+D=/tmp/votacao-horario
+python -m mamute_scrappers.tse_crawler.votacao_horario bu  --eleicao 2026-2t --saida $D --workers 16 --por-segundo 80
+python -m mamute_scrappers.tse_crawler.votacao_horario log --eleicao 2026-2t --saida $D --workers 16 --por-segundo 80 --limiar 17:05 --amostra 0.03
+python -m mamute_scrappers.tse_crawler.votacao_horario carregar --eleicao 2026-2t --saida $D --cadastro eleitorado_local_votacao_2026_BRASIL.csv
+```
+
+Cuidados:
+
+- **Bloqueio do TSE:** o `resultados.tse.jus.br` devolve 429 para tudo, por uns 15 minutos, quando
+  passa de ~150 pedidos por segundo. `--por-segundo` (padrão 40) limita a soma das threads; com
+  429 a espera cresce e respeita o `Retry-After`. Dá para dividir as UFs entre duas máquinas
+  (`--uf sp --uf rj ...`) e juntar os JSONL antes de `carregar`.
+- **Retomada:** cada etapa grava um JSONL por UF em `--saida/<eleicao>/` e pula o que já está lá.
+- **Fuso:** BU e log estão no relógio local da urna. O fuso de cada município sai da hora de
+  abertura mais comum das suas seções (abre às 8h de Brasília). Exterior fica de fora.
+- **Seção agregada** não tem BU próprio (vota na urna de outra seção): não aparece, e os votos dela
+  estão na seção principal.
+- **Pacote do 2º turno de 2026:** quando o TSE publicar `bu_imgbu_logjez_rdv_vscmr_2026_2t_<UF>.zip`
+  (o do 1º turno saiu 18 dias depois), dá para trocar a fonte do `2026-2t` para o pacote, como o
+  `2026-1t`.
+
 ### Reprocessar análise de texto de pronunciamentos
 
 ```bash
