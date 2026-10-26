@@ -152,3 +152,11 @@ def test_votacao_horario_admin(db: Session) -> None:
 
 def test_votacao_horario_admin_404_para_quem_nao_e_admin(db: Session) -> None:
     assert _cliente(db).get("/api/admin/votacao-horario").status_code == 404
+
+
+def test_resposta_grande_vem_comprimida(db: Session, monkeypatch) -> None:
+    # A lista de cidades pode passar de 1 MB: a API comprime (gzip) quando o cliente aceita.
+    monkeypatch.setattr(rota, "votacao_horario", lambda db: {"disponivel": True, "municipios": [{"nome": "x" * 50}] * 200})
+    resp = _cliente(db, admin=True).get("/api/admin/votacao-horario", headers={"Accept-Encoding": "gzip"})
+    assert resp.status_code == 200
+    assert resp.headers.get("content-encoding") == "gzip"
