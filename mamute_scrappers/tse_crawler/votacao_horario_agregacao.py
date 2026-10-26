@@ -280,10 +280,12 @@ def resultado_por_local(
             l = {
                 "uf": s.uf, "municipio": s.municipio, "zona": s.zona, "local": s.local,
                 "nome": c.nome if c else None, "bairro": c.bairro if c else None,
+                "endereco": c.endereco if c else None, "secoes": 0,
                 "latitude": c.latitude if c else None, "longitude": c.longitude if c else None,
                 "comparecimento": 0, "validos": 0, "votos_13": 0, "votos_22": 0,
             }  # fmt: skip
             locais[chave] = l
+        l["secoes"] += 1
         l["comparecimento"] += s.comparecimento
         l["validos"] += sum(v for k, v in s.votos.items() if k not in ("branco", "nulo"))
         l["votos_13"] += s.votos.get(FINALISTAS[0], 0)
@@ -299,9 +301,10 @@ def gravar_resultado_local(db, eleicao: str, linhas: List[dict]) -> None:
     if linhas:
         db.execute(
             text(
-                "INSERT INTO resultado_local_votacao (eleicao, uf, municipio, zona, local, nome, bairro, latitude, "
-                "longitude, comparecimento, validos, votos_13, votos_22) VALUES (:eleicao, :uf, :municipio, :zona, "
-                ":local, :nome, :bairro, :latitude, :longitude, :comparecimento, :validos, :votos_13, :votos_22)"
+                "INSERT INTO resultado_local_votacao (eleicao, uf, municipio, zona, local, nome, bairro, endereco, "
+                "secoes, latitude, longitude, comparecimento, validos, votos_13, votos_22) VALUES (:eleicao, :uf, "
+                ":municipio, :zona, :local, :nome, :bairro, :endereco, :secoes, :latitude, :longitude, "
+                ":comparecimento, :validos, :votos_13, :votos_22)"
             ),
             [{"eleicao": eleicao, **l} for l in linhas],
         )

@@ -191,6 +191,7 @@ def test_resultado_por_local_soma_as_secoes_do_local():
     assert a["votos_13"] == 40 + 50 + 5 and a["votos_22"] == 60 + 50 + 15
     assert a["validos"] == 220 and a["comparecimento"] == 225
     assert a["nome"] == "EE A" and a["bairro"] == "Centro" and a["latitude"] == -23.5
+    assert a["secoes"] == 3 and a["endereco"] == CADASTRO[("sp", 71072, 1, 10)].endereco
     assert len(linhas) == 3
 
 
@@ -199,7 +200,8 @@ def test_gravar_resultado_local_troca_a_eleicao():
     with db.get_bind().begin() as c:
         c.execute(text("""CREATE TABLE resultado_local_votacao (
             id INTEGER PRIMARY KEY AUTOINCREMENT, eleicao TEXT, uf TEXT, municipio INTEGER, zona INTEGER,
-            local INTEGER, nome TEXT, bairro TEXT, latitude REAL, longitude REAL, comparecimento INTEGER,
+            local INTEGER, nome TEXT, bairro TEXT, endereco TEXT, secoes INTEGER, latitude REAL, longitude REAL,
+            comparecimento INTEGER,
             validos INTEGER, votos_13 INTEGER, votos_22 INTEGER)"""))
     linhas = resultado_por_local(SECOES, CADASTRO)
     gravar_resultado_local(db, "2026-2t", linhas)
