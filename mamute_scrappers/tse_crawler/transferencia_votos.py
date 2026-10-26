@@ -85,14 +85,22 @@ def _tudo_totalizado(session: Session, ciclo: str, cargo: int) -> bool:
         text(
             """
             SELECT count(DISTINCT turno) AS turnos,
-                   sum(CASE WHEN totalizacao_final THEN 0 ELSE 1 END) AS abertos
+                   sum(CASE WHEN totalizacao_final THEN 0 ELSE 1 END) AS abertos,
+                   sum(CASE WHEN turno = 1 THEN 1 ELSE 0 END) AS municipios_t1,
+                   sum(CASE WHEN turno = 2 THEN 1 ELSE 0 END) AS municipios_t2
               FROM tse_resultado_municipio
              WHERE ciclo = :ciclo AND cargo_codigo = :cargo
             """
         ),
         {"ciclo": ciclo, "cargo": cargo},
     ).one()
-    return int(row.turnos or 0) == 2 and int(row.abertos or 0) == 0
+    # Municipio sem arquivo numa rodada (404, TSE fora) some da base: menos
+    # municipios no 2o turno que no 1o = ainda nao esta tudo la.
+    return (
+        int(row.turnos or 0) == 2
+        and int(row.abertos or 0) == 0
+        and int(row.municipios_t2 or 0) >= int(row.municipios_t1 or 0)
+    )
 
 
 def _votos_por_municipio(session: Session, ciclo: str, cargo: int, turno: int) -> Dict[str, Dict[int, int]]:

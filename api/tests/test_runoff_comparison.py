@@ -23,7 +23,7 @@ DDL = [
     "regiao_imediata_nome text, macrorregiao text)",
     "create table tse_resultado_municipio (id integer primary key, ciclo text, codigo_eleicao integer, "
     "turno smallint, cargo_codigo integer, uf text, cd_tse text, cd_ibge integer, nome text, capital boolean, "
-    "eleitorado bigint, comparecimento bigint, abstencao bigint, brancos bigint, nulos bigint, validos bigint, "
+    "eleitorado bigint, eleitorado_apurado bigint, comparecimento bigint, abstencao bigint, brancos bigint, nulos bigint, validos bigint, "
     "percentual_apurado numeric, totalizacao_final boolean, tse_atualizado_em timestamp, coletado_em timestamp)",
     "create table tse_resultado_municipio_candidato (resultado_id integer, sqcand bigint, numero integer, "
     "nome_urna text, votos bigint)",
@@ -42,18 +42,20 @@ def vazio() -> Session:
 
 
 def _municipio(db: Session, cd: str, turno: int, uf: str, ibge, capital: bool, votos: dict, *,
-               brancos: int = 0, nulos: int = 0, abstencao: int = 0, final: bool = True) -> None:
+               brancos: int = 0, nulos: int = 0, abstencao: int = 0, final: bool = True,
+               eleitorado_apurado=None) -> None:
     validos = sum(votos.values())
     rid = next(_ids)
     db.execute(
         text(
             "insert into tse_resultado_municipio (id, ciclo, codigo_eleicao, turno, cargo_codigo, uf, cd_tse, "
-            "cd_ibge, nome, capital, eleitorado, comparecimento, abstencao, brancos, nulos, validos, "
+            "cd_ibge, nome, capital, eleitorado, eleitorado_apurado, comparecimento, abstencao, brancos, nulos, validos, "
             "totalizacao_final, tse_atualizado_em) values (:id, 'ele2026', :e, :t, 1, :uf, :cd, :ibge, :nome, "
-            ":cap, :el, :co, :ab, :b, :n, :v, :f, '2026-10-25 21:00:00')"
+            ":cap, :el, :ea, :co, :ab, :b, :n, :v, :f, '2026-10-25 21:00:00')"
         ),
         {"id": rid, "e": 6256 + turno, "t": turno, "uf": uf, "cd": cd, "ibge": ibge, "nome": f"M{cd}",
-         "cap": capital, "el": validos + brancos + nulos + abstencao, "co": validos + brancos + nulos,
+         "cap": capital, "el": validos + brancos + nulos + abstencao,
+         "ea": eleitorado_apurado if eleitorado_apurado is not None else validos + brancos + nulos + abstencao, "co": validos + brancos + nulos,
          "ab": abstencao, "b": brancos, "n": nulos, "v": validos, "f": final},
     )
     nomes = {ALFA: "ALFA", BETA: "BETA", GAMA: "GAMA"}
@@ -64,7 +66,7 @@ def _municipio(db: Session, cd: str, turno: int, uf: str, ibge, capital: bool, v
         )
 
 
-def _popular(db: Session, *, parcial: bool = False) -> None:
+def _popular(db: Session, *, parcial: bool = False, sem_exterior_t2: bool = False) -> None:
     for ddl in DDL:
         db.execute(text(ddl))
     db.execute(text(
@@ -81,9 +83,12 @@ def _popular(db: Session, *, parcial: bool = False) -> None:
     # 2º turno
     _municipio(db, "1", 2, "sc", 1, True, {ALFA: 55, BETA: 45}, brancos=4, nulos=6, abstencao=20)
     _municipio(db, "2", 2, "sc", 2, False, {ALFA: 25, BETA: 75}, brancos=5, nulos=5, abstencao=10)
-    _municipio(db, "3", 2, "ba", 3, True, {ALFA: 45, BETA: 35}, abstencao=50, final=not parcial)
+    # parcial: metade das seções de Salvador apuradas (eleitorado total 130, apurado 65)
+    _municipio(db, "3", 2, "ba", 3, True, {ALFA: 45, BETA: 35}, abstencao=50, final=not parcial,
+               eleitorado_apurado=65 if parcial else None)
     _municipio(db, "4", 2, "ba", 4, False, {ALFA: 0, BETA: 0})
-    _municipio(db, "9", 2, "zz", None, False, {ALFA: 5, BETA: 5}, abstencao=90)
+    if not sem_exterior_t2:
+        _municipio(db, "9", 2, "zz", None, False, {ALFA: 5, BETA: 5}, abstencao=90)
     db.execute(text(
         "insert into comparacao_turnos_estimativa values "
         "('ele2026', 1, 'brasil', 'BR', '201', '101', 0.6, 19000, 5, '2026-10-26 01:00:00'), "
@@ -223,3 +228,27 @@ def test_rota_e_404_para_quem_nao_e_admin(db: Session) -> None:
     finally:
         main.app.dependency_overrides.clear()
     assert resp.status_code == 404
+
+
+def test_parcial_mede_abstencao_sobre_eleitorado_apurado() -> None:
+    s = sessionmaker(bind=_engine())()
+    _popular(s, parcial=True)
+    capital_ba = _recorte(runoff_comparison(s), "capital", "BA")
+    # 50 de abstenção sobre 65 eleitores das seções apuradas, não sobre os 130 do total
+    assert capital_ba["turno2"]["abstencao_pct"] == pytest.approx(100 * 50 / 65, rel=1e-3)
+
+
+def test_parcial_quando_falta_municipio_no_segundo_turno() -> None:
+    s = sessionmaker(bind=_engine())()
+    _popular(s, sem_exterior_t2=True)
+    resp = runoff_comparison(s)
+    assert resp["situacao"]["parcial"] is True
+    assert resp["estimativa"]["recortes"] == []
+
+
+def test_parcial_nao_afirma_quem_venceu() -> None:
+    s = sessionmaker(bind=_engine())()
+    _popular(s, parcial=True)
+    textos = [d["texto"] for d in runoff_comparison(s)["destaques"]]
+    assert not any("venceu" in t for t in textos)
+    assert not any("abstenção foi de" in t for t in textos)

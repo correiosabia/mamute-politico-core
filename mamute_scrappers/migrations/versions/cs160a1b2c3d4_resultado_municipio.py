@@ -56,6 +56,8 @@ def upgrade() -> None:
             nome TEXT NOT NULL,
             capital BOOLEAN NOT NULL DEFAULT false,
             eleitorado BIGINT,
+            -- `e.est`: eleitorado das secoes ja totalizadas; base da abstencao enquanto a apuracao corre
+            eleitorado_apurado BIGINT,
             comparecimento BIGINT,
             abstencao BIGINT,
             brancos BIGINT,

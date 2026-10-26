@@ -87,7 +87,13 @@ def carregar_ibge(session: Session, ibge_get: Callable[[], list]) -> int:
     """Carrega `ibge_municipio` uma vez (tabela vazia). Devolve quantos gravou."""
     if session.execute(text("SELECT count(*) FROM ibge_municipio")).scalar():
         return 0
-    linhas = parse_ibge(ibge_get())
+    try:
+        payload = ibge_get()
+    except (requests.RequestException, ValueError) as exc:
+        # Sem IBGE so faltam as regioes; Brasil, UF e capital seguem. Tenta de novo na proxima rodada.
+        logger.warning("IBGE indisponivel, regioes ficam para a proxima rodada: %s", exc)
+        return 0
+    linhas = parse_ibge(payload)
     if not linhas:
         return 0
     session.execute(
@@ -119,16 +125,17 @@ _UPSERT = text(
     """
     INSERT INTO tse_resultado_municipio
         (ciclo, codigo_eleicao, turno, cargo_codigo, uf, cd_tse, cd_ibge, nome, capital,
-         eleitorado, comparecimento, abstencao, brancos, nulos, validos,
+         eleitorado, eleitorado_apurado, comparecimento, abstencao, brancos, nulos, validos,
          percentual_apurado, totalizacao_final, tse_atualizado_em, coletado_em)
     VALUES
         (:ciclo, :codigo_eleicao, :turno, :cargo, :uf, :cd_tse, :cd_ibge, :nome, :capital,
-         :eleitorado, :comparecimento, :abstencao, :brancos, :nulos, :validos,
+         :eleitorado, :eleitorado_apurado, :comparecimento, :abstencao, :brancos, :nulos, :validos,
          :apurado, :final, :tse_atualizado_em, :agora)
     ON CONFLICT (codigo_eleicao, cargo_codigo, cd_tse) DO UPDATE SET
         turno = excluded.turno, uf = excluded.uf, cd_ibge = excluded.cd_ibge,
         nome = excluded.nome, capital = excluded.capital,
-        eleitorado = excluded.eleitorado, comparecimento = excluded.comparecimento,
+        eleitorado = excluded.eleitorado, eleitorado_apurado = excluded.eleitorado_apurado,
+        comparecimento = excluded.comparecimento,
         abstencao = excluded.abstencao, brancos = excluded.brancos, nulos = excluded.nulos,
         validos = excluded.validos, percentual_apurado = excluded.percentual_apurado,
         totalizacao_final = excluded.totalizacao_final,
@@ -160,6 +167,7 @@ def _gravar(
             "nome": municipio.nome,
             "capital": municipio.capital,
             "eleitorado": resumo.eleitorado,
+            "eleitorado_apurado": resumo.eleitorado_apurado,
             "comparecimento": resumo.comparecimento,
             "abstencao": resumo.abstencao,
             "brancos": resumo.brancos,

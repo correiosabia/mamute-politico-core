@@ -112,3 +112,11 @@ def test_recalculo_substitui_linhas() -> None:
     primeira = calcular_estimativas(session)
     assert calcular_estimativas(session) == primeira
     assert session.execute(text("SELECT count(*) FROM comparacao_turnos_estimativa")).scalar() == primeira
+
+
+def test_nao_calcula_quando_falta_municipio_no_segundo_turno() -> None:
+    session = make_session()
+    _base(session)
+    session.execute(text("DELETE FROM tse_resultado_municipio WHERE turno = 2 AND cd_tse = '5'"))
+    session.commit()
+    assert calcular_estimativas(session) == 0

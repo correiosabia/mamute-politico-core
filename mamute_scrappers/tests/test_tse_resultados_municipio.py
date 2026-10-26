@@ -190,3 +190,21 @@ def test_coleta_carrega_ibge_uma_vez() -> None:
     coletar_municipios(session, base=BASE, http_get=_fake_completo(), ibge_get=ibge, workers=2)
     assert ibge.chamadas == 1
     assert session.execute(text("SELECT count(*) FROM ibge_municipio")).scalar() == 2
+
+
+def test_parse_resumo_guarda_eleitorado_apurado() -> None:
+    parcial = _load("mun-sc81051-t2.json")
+    parcial["e"]["est"] = "200000"
+    assert parse_resumo_municipio(parcial).eleitorado_apurado == 200000
+
+
+def test_coleta_segue_quando_ibge_falha() -> None:
+    import requests
+
+    def ibge_fora() -> list:
+        raise requests.ConnectionError("ibge fora")
+
+    session = make_session()
+    stats = coletar_municipios(session, base=BASE, http_get=_fake_completo(), ibge_get=ibge_fora, workers=2)
+    assert stats.ibge_carregados == 0 and stats.baixados == 2
+    assert session.execute(text("SELECT eleitorado_apurado FROM tse_resultado_municipio WHERE turno = 2")).scalar() == 423975

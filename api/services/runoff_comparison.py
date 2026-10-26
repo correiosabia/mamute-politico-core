@@ -74,6 +74,9 @@ def _iso(valor: Any) -> Optional[str]:
 @dataclass
 class _Totais:
     eleitorado: int = 0
+    # Base da abstenção: eleitorado das seções já totalizadas (`e.est` do TSE).
+    # Com a apuração em curso, comparecimento e abstenção só contam essas seções.
+    eleitorado_apurado: int = 0
     comparecimento: int = 0
     abstencao: int = 0
     brancos: int = 0
@@ -84,6 +87,8 @@ class _Totais:
     def somar(self, linha: dict, votos: Dict[int, int]) -> None:
         for campo in ("eleitorado", "comparecimento", "abstencao", "brancos", "nulos", "validos"):
             setattr(self, campo, getattr(self, campo) + int(linha[campo] or 0))
+        apurado = linha.get("eleitorado_apurado")
+        self.eleitorado_apurado += int(apurado if apurado is not None else linha["eleitorado"] or 0)
         for sq, v in votos.items():
             self.votos[sq] += v
 
@@ -139,6 +144,7 @@ def _carregar(db: Session) -> tuple[list[dict], Dict[int, Dict[int, int]], Dict[
             text(
                 """
                 SELECT r.id, r.turno, r.uf, r.cd_tse, r.cd_ibge, r.capital, r.eleitorado,
+                       r.eleitorado_apurado,
                        r.comparecimento, r.abstencao, r.brancos, r.nulos, r.validos,
                        r.totalizacao_final, r.tse_atualizado_em,
                        i.regiao_intermediaria_id, i.regiao_intermediaria_nome, i.macrorregiao
@@ -192,7 +198,7 @@ def _totais_json(t: _Totais, finalistas: List[int], turno: int) -> dict[str, Any
         "eleitorado": t.eleitorado,
         "comparecimento": t.comparecimento,
         "abstencao": t.abstencao,
-        "abstencao_pct": _pct(t.abstencao, t.eleitorado),
+        "abstencao_pct": _pct(t.abstencao, t.eleitorado_apurado),
         "brancos": t.brancos,
         "nulos": t.nulos,
         "validos": t.validos,
@@ -287,7 +293,7 @@ def _destaques(
                 f"No Brasil, {nomes.get(sq, sq)} foi de {_fmt_pct(p1)}% para {_fmt_pct(p2)}% "
                 f"dos votos válidos ({_fmt_pp(pp)} pp).")
         a1, a2 = brasil["turno1"]["abstencao_pct"], brasil["turno2"]["abstencao_pct"]
-        if a1 is not None and a2 is not None:
+        if not parcial and a1 is not None and a2 is not None:
             add("brasil", brasil, f"A abstenção foi de {_fmt_pct(a1)}% para {_fmt_pct(a2)}% do eleitorado.")
 
     for tipo, tipo_frase in (("uf", "maior_ganho_uf"), ("regiao_intermediaria", "maior_ganho_regiao")):
@@ -306,7 +312,8 @@ def _destaques(
                     f"{_onde(r)}, {nomes.get(sq, sq)} foi de {_fmt_pct(f1)}% para {_fmt_pct(f2)}% "
                     f"dos votos válidos ({_fmt_pp(pp)} pp).")
 
-    for tipo in ("uf", "regiao_intermediaria"):
+    # Com apuração em curso não existe "venceu": as frases de líder esperam o fim.
+    for tipo in ("uf", "regiao_intermediaria") if not parcial else ():
         for r in por_tipo[tipo]:
             if r["mudou_lider"]:
                 lider = nomes.get(int(r["lider_turno1"]), r["lider_turno1"])
@@ -426,7 +433,11 @@ def runoff_comparison(db: Session) -> dict[str, Any]:
             recorte = recortes.setdefault((tipo, chave), _Recorte(tipo, chave, nome, uf))
             recorte.turnos[turno].somar(l, votos.get(int(l["id"]), {}))
 
-    parcial = any(s["totalizados"] < s["municipios"] for s in situacao.values())
+    # Município sem arquivo numa rodada (404, TSE fora) não tem linha: menos
+    # municípios no 2º turno que no 1º também é parcial.
+    parcial = any(s["totalizados"] < s["municipios"] for s in situacao.values()) or (
+        situacao[2]["municipios"] < situacao[1]["municipios"]
+    )
     ordem = {"brasil": 0, "macrorregiao": 1, "uf": 2, "regiao_intermediaria": 3, "capital": 4, "interior": 5}
     recortes_json = [
         _recorte_json(r, finalistas)

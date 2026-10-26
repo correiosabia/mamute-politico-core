@@ -352,6 +352,9 @@ class ResumoMunicipio:
     atualizado_em: Optional[datetime]
     percentual_apurado: Optional[Decimal]
     eleitorado: Optional[int]  # `e.te`
+    # `e.est`: eleitorado das secoes ja totalizadas. `c` e `a` so contam essas
+    # secoes, entao e a base da abstencao enquanto a apuracao corre.
+    eleitorado_apurado: Optional[int]
     comparecimento: Optional[int]  # `e.c`
     abstencao: Optional[int]  # `e.a`
     brancos: Optional[int]  # `v.vb`
@@ -401,6 +404,7 @@ def parse_resumo_municipio(payload: dict) -> ResumoMunicipio:
         atualizado_em=_parse_timestamp(payload.get("dt"), payload.get("ht")),
         percentual_apurado=_parse_percent((payload.get("s") or {}).get("pst")),
         eleitorado=_parse_int(e.get("te")),
+        eleitorado_apurado=_parse_int(e.get("est")),
         comparecimento=_parse_int(e.get("c")),
         abstencao=_parse_int(e.get("a")),
         brancos=_parse_int(v.get("vb")),
