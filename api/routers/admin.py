@@ -32,6 +32,7 @@ try:
     )
     from ..services.admin_coverage import db_coverage
     from ..services.elected_profile import elected_profile
+    from ..services.runoff_comparison import runoff_comparison
     from ..services.admin_finance import crescimento, resumo_financeiro
     from ..services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
     from ..services.stripe_fees import taxas_do_mes
@@ -89,6 +90,7 @@ except ImportError:  # execução dentro de api/
     )
     from services.admin_coverage import db_coverage
     from services.elected_profile import elected_profile
+    from services.runoff_comparison import runoff_comparison
     from services.admin_finance import crescimento, resumo_financeiro
     from services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
     from services.stripe_fees import taxas_do_mes
@@ -562,6 +564,17 @@ def elected_profile_route(
     """Gênero e cor/raça dos eleitos de 2026 (Senado e Câmara), só com o
     resultado oficial encerrado. Regras em `services/elected_profile.py`."""
     return elected_profile(db)
+
+
+@router.get("/runoff-comparison")
+def runoff_comparison_route(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    """Presidente: 1º x 2º turno por Brasil, macrorregião, UF, região
+    intermediária do IBGE e capital x interior (CS-160). Regras em
+    `services/runoff_comparison.py`."""
+    return runoff_comparison(db)
 
 
 @router.get("/coverage")
