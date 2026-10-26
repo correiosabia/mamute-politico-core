@@ -19,6 +19,8 @@ python-dotenv==1.0.1
 requests==2.32.4
 # Cliente da DivulgaCandContas (TSE): o Akamai recusa o TLS do Python puro (CS-126).
 curl_cffi==0.16.3
+# CS-163: log de urna de 2022 vem em 7z.
+py7zr==0.22.0
 soupsieve==2.7
 spacy==3.7.4
 https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.7.0/pt_core_news_sm-3.7.0-py3-none-any.whl

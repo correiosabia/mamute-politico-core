@@ -5,6 +5,9 @@
   ferramenta interna para o e-mail).
 * `/admin/pages/{chave}`: o admin lê e muda o estado (`admin` | `publica`).
   Gate igual ao resto do painel (404 para não admin).
+* Votos depois das 17h (CS-163): `/admin/votacao-horario` e a versão
+  pública, mais o detalhe por município (`/{uf}/{municipio}`, locais de
+  votação). Os dados são públicos do TSE; a versão pública é igual à do admin.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ try:
     from ..services.elected_profile import elected_profile
     from ..services.pagina_publicacao import PAGINAS, definir_estado, estado_da_pagina
     from ..services.runoff_comparison import runoff_comparison
+    from ..services.votacao_horario import locais_do_municipio, votacao_horario
     from .admin import _log_admin_action
 except ImportError:  # execução dentro de api/
     from dependencies import get_db
@@ -29,12 +33,14 @@ except ImportError:  # execução dentro de api/
     from services.elected_profile import elected_profile
     from services.pagina_publicacao import PAGINAS, definir_estado, estado_da_pagina
     from services.runoff_comparison import runoff_comparison
+    from services.votacao_horario import locais_do_municipio, votacao_horario
     from routers.admin import _log_admin_action
 
 PAGINA = "eleicoes_2026"
 
 public_router = APIRouter(prefix="/public/eleicoes-2026", tags=["public"])
 admin_router = APIRouter(prefix="/admin/pages", tags=["admin"])
+admin_dados_router = APIRouter(prefix="/admin/votacao-horario", tags=["admin"])
 
 
 # A página pública pode ser compartilhada em massa e cada resposta agrega ~11 mil
@@ -73,6 +79,43 @@ def perfil_publico(db: Session = Depends(get_db)) -> dict[str, Any]:
 def comparacao_publica(db: Session = Depends(get_db)) -> dict[str, Any]:
     _exige_publica(db)
     return _em_cache("comparacao", lambda: {**runoff_comparison(db), "destaques": []})
+
+
+@public_router.get("/votacao-horario")
+def votacao_horario_publica(db: Session = Depends(get_db)) -> dict[str, Any]:
+    _exige_publica(db)
+    return _em_cache("votacao_horario", lambda: votacao_horario(db))
+
+
+def _locais_ou_404(db: Session, uf: str, municipio: int) -> dict[str, Any]:
+    resultado = locais_do_municipio(db, uf, municipio)
+    if resultado is None:
+        raise HTTPException(status_code=404, detail="Município sem votos depois das 17h.")
+    return resultado
+
+
+@public_router.get("/votacao-horario/{uf}/{municipio}")
+def locais_publicos(uf: str, municipio: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    _exige_publica(db)
+    return _em_cache(f"locais:{uf.upper()}:{municipio}", lambda: _locais_ou_404(db, uf, municipio))
+
+
+@admin_dados_router.get("")
+def votacao_horario_admin(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    return votacao_horario(db)
+
+
+@admin_dados_router.get("/{uf}/{municipio}")
+def locais_admin(
+    uf: str,
+    municipio: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    return _locais_ou_404(db, uf, municipio)
 
 
 class EstadoIn(BaseModel):

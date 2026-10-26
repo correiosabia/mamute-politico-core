@@ -138,6 +138,8 @@ def create_app() -> FastAPI:
     # CS-162: página Eleições 2026 (pública sem login quando publicada) e o controle no admin.
     api_router.include_router(eleicoes_publicas.public_router)
     api_router.include_router(eleicoes_publicas.admin_router)
+    # CS-163: votos depois das 17h no admin (a versão pública vai no public_router).
+    api_router.include_router(eleicoes_publicas.admin_dados_router)
     api_router.include_router(events.router)
     api_router.include_router(email_settings.admin_router)
     # Imagens do e-mail: o cliente de e-mail busca sem login.

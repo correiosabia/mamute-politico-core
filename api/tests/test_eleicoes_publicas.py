@@ -42,6 +42,11 @@ def _servicos(monkeypatch):
         rota, "runoff_comparison",
         lambda db: {"disponivel": True, "recortes": [], "destaques": [{"texto": "interno"}]},
     )
+    monkeypatch.setattr(rota, "votacao_horario", lambda db: {"disponivel": True, "municipios": []})
+    monkeypatch.setattr(
+        rota, "locais_do_municipio",
+        lambda db, uf, mu: {"municipio": {"uf": uf, "municipio": mu}, "locais": []} if mu == 71072 else None,
+    )
 
 
 def _cliente(db: Session, *, admin: bool = False, publico: bool = False) -> TestClient:
@@ -126,3 +131,24 @@ def test_despublicar_vale_na_hora_mesmo_com_cache(db: Session) -> None:
     assert cliente.get("/api/public/eleicoes-2026/runoff-comparison").status_code == 200
     definir_estado(db, "eleicoes_2026", "admin", "admin@mamute.com")
     assert cliente.get("/api/public/eleicoes-2026/runoff-comparison").status_code == 404
+
+
+def test_votacao_horario_publica_segue_o_estado_da_pagina(db: Session) -> None:
+    cliente = _cliente(db, publico=True)
+    assert cliente.get("/api/public/eleicoes-2026/votacao-horario").status_code == 404
+    assert cliente.get("/api/public/eleicoes-2026/votacao-horario/SP/71072").status_code == 404
+    definir_estado(db, "eleicoes_2026", "publica", "admin@mamute.com")
+    assert cliente.get("/api/public/eleicoes-2026/votacao-horario").json()["disponivel"] is True
+    assert cliente.get("/api/public/eleicoes-2026/votacao-horario/SP/71072").json()["municipio"]["uf"] == "SP"
+    assert cliente.get("/api/public/eleicoes-2026/votacao-horario/SP/1").status_code == 404
+
+
+def test_votacao_horario_admin(db: Session) -> None:
+    cliente = _cliente(db, admin=True)
+    assert cliente.get("/api/admin/votacao-horario").json()["disponivel"] is True
+    assert cliente.get("/api/admin/votacao-horario/SP/71072").status_code == 200
+    assert cliente.get("/api/admin/votacao-horario/SP/1").status_code == 404
+
+
+def test_votacao_horario_admin_404_para_quem_nao_e_admin(db: Session) -> None:
+    assert _cliente(db).get("/api/admin/votacao-horario").status_code == 404
