@@ -121,3 +121,30 @@ def test_limitador_espaca_os_pedidos():
         lim.aguardar()
     # 10 por segundo: um pedido a cada 0,1 s
     assert relogio[0] == pytest.approx(0.4)
+
+
+BWEB = "\n".join(
+    [
+        '"SG_UF";"CD_MUNICIPIO";"NR_ZONA";"NR_SECAO";"NR_LOCAL_VOTACAO";"CD_ELEICAO";"CD_CARGO_PERGUNTA";'
+        '"QT_COMPARECIMENTO";"DS_TIPO_VOTAVEL";"NR_VOTAVEL";"QT_VOTOS";"DT_ABERTURA";"DT_ENCERRAMENTO"',
+        '"AC";1074;4;1;1015;6258;1;202;"Nominal";13;68;"2026-10-25 06:00:01";"2026-10-25 15:01:52"',
+        '"AC";1074;4;1;1015;6258;1;202;"Nominal";22;127;"2026-10-25 06:00:01";"2026-10-25 15:01:52"',
+        '"AC";1074;4;1;1015;6258;1;202;"Branco";95;3;"2026-10-25 06:00:01";"2026-10-25 15:01:52"',
+        '"AC";1074;4;1;1015;6258;1;202;"Nulo";96;4;"2026-10-25 06:00:01";"2026-10-25 15:01:52"',
+        '"AC";1074;4;1;1015;6260;3;202;"Nominal";10;100;"2026-10-25 06:00:01";"2026-10-25 15:01:52"',
+    ]
+)
+
+
+def test_secoes_do_bweb_igual_ao_bu():
+    from mamute_scrappers.tse_crawler.votacao_horario import secoes_do_bweb
+
+    secoes = secoes_do_bweb(io.StringIO(BWEB), cd_eleicao=6258)
+    assert len(secoes) == 1
+    s = secoes[0]
+    assert (s.uf, s.municipio, s.zona, s.local, s.secao) == ("ac", 1074, 4, 1015, 1)
+    assert s.abertura == datetime(2026, 10, 25, 6, 0, 1)
+    assert s.encerramento == datetime(2026, 10, 25, 15, 1, 52)
+    assert s.comparecimento == 202
+    assert s.votos == {"13": 68, "22": 127, "branco": 3, "nulo": 4}
+    assert s.logs == []

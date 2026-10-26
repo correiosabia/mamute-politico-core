@@ -429,6 +429,66 @@ def _coletar_bu_pacote(e: Eleicao, sessao, uf: str, grav: _Gravador, workers: in
                 logger.warning("%s %s %s: %s", e.chave, uf, futs[f], exc)
 
 
+# --- planilha de boletins de urna (Dados Abertos) -----------------------------------
+
+DATASET_BWEB = "https://dadosabertos.tse.jus.br/dataset/resultados-{ano}-boletim-de-urna"
+_TIPO_BWEB = {"Branco": "branco", "Nulo": "nulo"}
+
+
+def secoes_do_bweb(arquivo, *, cd_eleicao: int) -> List[SecaoBu]:
+    """Secoes da planilha `bweb_<turno>_<UF>_*.csv`: os mesmos campos do BU
+    (abertura, encerramento, local, comparecimento e votos), uma linha por
+    votavel. Sem os caminhos dos logs: a etapa `log` busca o `aux.json` so
+    das secoes que vai ler."""
+    import csv
+
+    secoes: Dict[Tuple[str, int, int, int], SecaoBu] = {}
+    for row in csv.DictReader(arquivo, delimiter=";"):
+        if int(row["CD_ELEICAO"]) != cd_eleicao or int(row["CD_CARGO_PERGUNTA"]) != 1:
+            continue
+        uf = row["SG_UF"].lower()
+        chave = (uf, int(row["CD_MUNICIPIO"]), int(row["NR_ZONA"]), int(row["NR_SECAO"]))
+        s = secoes.get(chave)
+        if s is None:
+            s = SecaoBu(
+                uf, chave[1], chave[2], int(row["NR_LOCAL_VOTACAO"]), chave[3],
+                datetime.fromisoformat(row["DT_ABERTURA"]), datetime.fromisoformat(row["DT_ENCERRAMENTO"]),
+                int(row["QT_COMPARECIMENTO"]), {}, [],
+            )  # fmt: skip
+            secoes[chave] = s
+        voto = _TIPO_BWEB.get(row["DS_TIPO_VOTAVEL"], row["NR_VOTAVEL"])
+        s.votos[voto] = s.votos.get(voto, 0) + int(row["QT_VOTOS"])
+    return list(secoes.values())
+
+
+def coletar_bu_planilha(e: Eleicao, saida: Path, ufs: Sequence[str]) -> None:
+    """Etapa `bu` pela planilha do Dados Abertos (sai no dia seguinte a
+    eleicao): um download por UF em vez de dois pedidos por secao."""
+    import io
+    import zipfile
+
+    turno = e.chave.split("-")[1]
+    ano = e.dia.year
+    sessao = requests.Session()
+    pagina = _get(sessao, DATASET_BWEB.format(ano=ano)).text
+    for uf in ufs:
+        achados = re.findall(rf"https://cdn\.tse\.jus\.br/[^\"']*bweb_{turno}_{uf.upper()}_\d+\.zip", pagina)
+        if not achados:
+            logger.warning("%s %s: planilha ainda nao publicada", e.chave, uf)
+            continue
+        grav = _Gravador(saida / e.chave / f"{uf}.bu.jsonl")
+        r = sessao.get(sorted(achados)[-1], headers=HEADERS, timeout=600)
+        r.raise_for_status()
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            nome = next(n for n in z.namelist() if n.lower().endswith(".csv"))
+            with z.open(nome) as f:
+                secoes = secoes_do_bweb(io.TextIOWrapper(f, encoding="latin-1", newline=""), cd_eleicao=e.cd_eleicao)
+        novas = [s for s in secoes if (s.municipio, s.zona, s.secao) not in grav.feitos]
+        for s in novas:
+            grav.gravar(s.para_json())
+        logger.info("%s %s: planilha com %d secoes, %d novas", e.chave, uf, len(secoes), len(novas))
+
+
 def ler_bus(saida: Path, e: Eleicao, uf: str) -> List[SecaoBu]:
     caminho = saida / e.chave / f"{uf}.bu.jsonl"
     if not caminho.exists():
@@ -455,7 +515,13 @@ def coletar_log(
 
         def um(s: SecaoBu, motivo: str) -> dict:
             votos: List[datetime] = []
-            for caminho in s.logs:
+            caminhos = s.logs
+            if not caminhos and not e.pacote:
+                # Secao que veio da planilha: o caminho do log esta no aux.json.
+                base = _url_secao(e, s.uf, s.municipio, s.zona, s.secao)
+                r = _get(sessao, f"{base}/p{e.pleito:06d}-{s.uf}-m{s.municipio:05d}-z{s.zona:04d}-s{s.secao:04d}-aux.json")
+                caminhos = arquivos_da_secao(r.json())[1] if r.status_code != 404 else []
+            for caminho in caminhos:
                 if e.pacote:
                     bruto = ler_membro_zip(membros[caminho], remoto.faixa)
                 else:
@@ -535,7 +601,7 @@ def carregar(e: Eleicao, saida: Path, ufs: Sequence[str], cadastro_csv: Path) ->
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("etapa", choices=["bu", "log", "carregar"])
+    p.add_argument("etapa", choices=["bu", "bu-planilha", "log", "carregar"])
     p.add_argument("--eleicao", choices=sorted(ELEICOES), required=True)
     p.add_argument("--saida", type=Path, required=True)
     p.add_argument("--uf", action="append", help="so estas UFs (padrao: todas, sem o exterior)")
@@ -552,6 +618,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     ufs = [u.lower() for u in a.uf] if a.uf else list(UFS)
     if a.etapa == "bu":
         coletar_bu(e, a.saida, ufs, a.workers)
+    elif a.etapa == "bu-planilha":
+        coletar_bu_planilha(e, a.saida, ufs)
     elif a.etapa == "carregar":
         if not a.cadastro:
             p.error("carregar precisa de --cadastro")
