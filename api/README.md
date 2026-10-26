@@ -196,6 +196,22 @@ neutras e iguais para os dois finalistas. Conferência: a soma do Brasil e de
 cada UF tem que bater com `e.te`, `e.a` e os votos do arquivo de UF do TSE
 (`<base>/ele2026/6258/dados/<uf>/<uf>-c0001-e006258-u.json`).
 
+## Página Eleições 2026: admin x pública (CS-162)
+
+Perfil dos eleitos e Diferença 2º turno podem abrir ao público em `/eleicoes-2026`, no mesmo
+esquema da Na Lupa: quem decide é o admin, sem recorte por plano.
+
+| Rota | Quem | O quê |
+|---|---|---|
+| `GET /api/public/eleicoes-2026/elected-profile` | qualquer um, sem login | igual à rota admin; 404 enquanto "só admin" |
+| `GET /api/public/eleicoes-2026/runoff-comparison` | qualquer um, sem login | igual à rota admin, sem `destaques`; 404 enquanto "só admin" |
+| `GET /api/admin/pages/eleicoes_2026` | admin | `{chave, estado}` |
+| `PUT /api/admin/pages/eleicoes_2026` `{estado: "admin" \| "publica"}` | admin | muda o estado (vai para `admin_audit_log`) |
+
+O estado mora em `pagina_publicacao` (migration `cs162a1b2c3d4`); sem linha ou sem tabela = `admin`.
+Não é feature flag de propósito: `useFeatureFlag` no app só consulta com token, então visitante sem
+login veria sempre "desligado".
+
 ## Coleções curadas (CS-132)
 
 Página editada pelo admin que reúne pessoas em torno de um tema, com blocos de
