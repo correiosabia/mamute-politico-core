@@ -66,6 +66,32 @@ DDL = [
         email TEXT NOT NULL, periodicidade TEXT NOT NULL, status TEXT NOT NULL,
         detail TEXT, subject TEXT, stats JSON, period_start DATE, period_end DATE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
+    # CS-160 (migration cs160a1b2c3d4)
+    """CREATE TABLE ibge_municipio (
+        cd_ibge INTEGER PRIMARY KEY, nome TEXT NOT NULL, uf TEXT NOT NULL,
+        regiao_intermediaria_id INTEGER, regiao_intermediaria_nome TEXT,
+        regiao_imediata_id INTEGER, regiao_imediata_nome TEXT, macrorregiao TEXT,
+        atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
+    """CREATE TABLE tse_resultado_municipio (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ciclo TEXT NOT NULL,
+        codigo_eleicao INTEGER NOT NULL, turno SMALLINT NOT NULL,
+        cargo_codigo INTEGER NOT NULL, uf TEXT NOT NULL, cd_tse TEXT NOT NULL,
+        cd_ibge INTEGER, nome TEXT NOT NULL, capital BOOLEAN NOT NULL DEFAULT 0,
+        eleitorado BIGINT, comparecimento BIGINT, abstencao BIGINT, brancos BIGINT,
+        nulos BIGINT, validos BIGINT, percentual_apurado NUMERIC,
+        totalizacao_final BOOLEAN NOT NULL DEFAULT 0, tse_atualizado_em TIMESTAMP,
+        coletado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (codigo_eleicao, cargo_codigo, cd_tse))""",
+    """CREATE TABLE tse_resultado_municipio_candidato (
+        resultado_id INTEGER NOT NULL, sqcand BIGINT NOT NULL, numero INTEGER,
+        nome_urna TEXT, votos BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (resultado_id, sqcand))""",
+    """CREATE TABLE comparacao_turnos_estimativa (
+        ciclo TEXT NOT NULL, cargo_codigo INTEGER NOT NULL, recorte TEXT NOT NULL,
+        chave TEXT NOT NULL, origem TEXT NOT NULL, destino TEXT NOT NULL,
+        proporcao NUMERIC NOT NULL, votos BIGINT NOT NULL, municipios INTEGER NOT NULL,
+        calculado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (ciclo, cargo_codigo, recorte, chave, origem, destino))""",
 ]
 
 
