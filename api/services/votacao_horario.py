@@ -35,6 +35,11 @@ ELEICOES = [
     {"chave": "2022-2t", "rotulo": "2º turno 2022", "dia": "2022-10-30", "ano": 2022},
 ]
 PRINCIPAL = "2026-2t"
+# Campos de cada cidade na lista (a lista pode ter milhares: o resto fica no detalhe).
+CAMPOS_CIDADE = (
+    "secoes", "comparecimento", "votos", "secoes_tardias", "secoes_voto_apos_17", "votos_apos_17",
+    "de_17_a_19", "apos_19", "ultimo_voto", "encerramento_max", "apos_17_pct", "margem",
+)  # fmt: skip
 FINALISTAS = ("13", "22")
 _MINUSCULAS = {"de", "da", "do", "das", "dos", "e", "d'"}
 
@@ -135,7 +140,7 @@ def votacao_horario(db: Session) -> Dict[str, Any]:
         m = meta[chave]
         lista_mun.append({
             "uf": chave[0], "municipio": chave[1], "nome": _nome_proprio(m.nome),
-            "latitude": m.latitude, "longitude": m.longitude, **principal,
+            "latitude": m.latitude, "longitude": m.longitude, **{k: principal[k] for k in CAMPOS_CIDADE},
             "base": {
                 e: {"votos_apos_17": d["votos_apos_17"], "comparecimento": d["comparecimento"], "apos_17_pct": d["apos_17_pct"]}
                 for e, d in por.items() if e != PRINCIPAL
