@@ -160,6 +160,30 @@ GROUP BY 1, 2;
 e comparar com os eleitos (`e = "s"` e `st` "Eleito...") do arquivo
 `<base>/ele2026/6259/dados/ba/ba-c0006-e006259-u.json`.
 
+## Diferença 2º turno (CS-160)
+
+`GET /api/admin/runoff-comparison` (admin; 404 para os outros) compara o 1º e o
+2º turno de presidente por Brasil, macrorregião, UF (exterior = `ZZ`), região
+geográfica intermediária do IBGE e capital x interior. Os dados vêm da coleta
+por município (`mamute_scrappers/tse_crawler/resultados_municipio.py`, cron
+`resultado-municipio`). Regras em `services/runoff_comparison.py`:
+
+| Regra | Por quê |
+|---|---|
+| Finalistas = os dois mais votados no 2º turno | nada de candidato fixo no código |
+| Soma de votos por recorte; % = votos / válidos | média de percentuais distorce |
+| `pct: null` quando o recorte não tem válidos | nunca mostrar 0% sem base |
+| `parcial: true` enquanto houver município sem totalização | as frases ganham "Parcial: " |
+| Abstenção x margem e estimativa só sem `parcial` | com dado parcial a variação seria falsa |
+| Estimativa = `comparacao_turnos_estimativa` (Brasil e macrorregiões) | inferência estatística calculada na coleta, não dado oficial |
+| `disponivel: false` sem tabelas ou sem 2º turno | janela do deploy antes da migration `cs160a1b2c3d4` |
+
+Os `destaques` são frases montadas por regra fixa (maiores ganhos por UF e
+região, onde o líder mudou, capital x interior, abstenção maior que a margem),
+neutras e iguais para os dois finalistas. Conferência: a soma do Brasil e de
+cada UF tem que bater com `e.te`, `e.a` e os votos do arquivo de UF do TSE
+(`<base>/ele2026/6258/dados/<uf>/<uf>-c0001-e006258-u.json`).
+
 ## Coleções curadas (CS-132)
 
 Página editada pelo admin que reúne pessoas em torno de um tema, com blocos de

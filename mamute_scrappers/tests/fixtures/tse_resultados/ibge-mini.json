@@ -1,0 +1,82 @@
+[
+ {
+  "id": 4205407,
+  "nome": "Florianópolis",
+  "microrregiao": {
+   "id": 42016,
+   "nome": "Florianópolis",
+   "mesorregiao": {
+    "id": 4205,
+    "nome": "Grande Florianópolis",
+    "UF": {
+     "id": 42,
+     "sigla": "SC",
+     "nome": "Santa Catarina",
+     "regiao": {
+      "id": 4,
+      "sigla": "S",
+      "nome": "Sul"
+     }
+    }
+   }
+  },
+  "regiao-imediata": {
+   "id": 420001,
+   "nome": "Florianópolis",
+   "regiao-intermediaria": {
+    "id": 4201,
+    "nome": "Florianópolis",
+    "UF": {
+     "id": 42,
+     "sigla": "SC",
+     "nome": "Santa Catarina",
+     "regiao": {
+      "id": 4,
+      "sigla": "S",
+      "nome": "Sul"
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": 4207502,
+  "nome": "Indaial",
+  "microrregiao": {
+   "id": 42012,
+   "nome": "Blumenau",
+   "mesorregiao": {
+    "id": 4204,
+    "nome": "Vale do Itajaí",
+    "UF": {
+     "id": 42,
+     "sigla": "SC",
+     "nome": "Santa Catarina",
+     "regiao": {
+      "id": 4,
+      "sigla": "S",
+      "nome": "Sul"
+     }
+    }
+   }
+  },
+  "regiao-imediata": {
+   "id": 420019,
+   "nome": "Blumenau",
+   "regiao-intermediaria": {
+    "id": 4207,
+    "nome": "Blumenau",
+    "UF": {
+     "id": 42,
+     "sigla": "SC",
+     "nome": "Santa Catarina",
+     "regiao": {
+      "id": 4,
+      "sigla": "S",
+      "nome": "Sul"
+     }
+    }
+   }
+  }
+ }
+]
