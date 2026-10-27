@@ -28,12 +28,18 @@ except ImportError:  # execução dentro de api/
 PAGINAS_COM_METRICAS = {"eleicoes_2026"}
 
 TIPOS = {
-    "visit",  # abriu a página
+    "visit",  # abriu a página (target = aba de entrada)
     "tab_change",  # trocou de aba (target = aba)
-    "view_change",  # trocou gráfico, mapa ou planilha (target = visão)
+    "tab_time",  # tempo lendo uma aba (target = aba, duration_ms)
+    "scroll_depth",  # rolou até um marco da aba (target = aba; detail = 25, 50, 75 ou 100)
+    "control",  # escolha dentro da aba (target = "aba/controle"; detail = valor)
+    "view_change",  # trocou gráfico, mapa ou planilha (target = visão; detail = título do gráfico)
     "share",  # compartilhou (target = peça, ex. "votos-17h"; detail = meio)
     "map_detail",  # abriu o detalhe de um ponto do mapa (target = "local" ou "municipio"; detail = lugar)
 }
+MARCOS_DE_ROLAGEM = ("25", "50", "75", "100")
+# Escolhas que são exportação de um gráfico (detail = título).
+EXPORTACOES = {"grafico_baixado", "grafico_copiado"}
 
 
 def grava_lote(
@@ -88,7 +94,7 @@ def metricas_da_pagina(db: Session, pagina: str, dias: int = 30) -> dict[str, An
     inicio = fim - timedelta(days=dias)
     linhas = db.execute(
         text(
-            "SELECT created_at, visitor_id, session_id, event_type, target, detail, "
+            "SELECT created_at, visitor_id, session_id, event_type, target, detail, duration_ms, "
             "device, country, region, city, referrer_host, utm_source "
             "FROM page_event WHERE page = :p AND created_at >= :i"
         ),
@@ -104,13 +110,24 @@ def metricas_da_pagina(db: Session, pagina: str, dias: int = 30) -> dict[str, An
     paises: Counter = Counter()
     origens: Counter = Counter()
     aparelhos: Counter = Counter()
-    abas: Counter = Counter()
+    entradas: Counter = Counter()
+    trocas: Counter = Counter()
+    viram: dict[str, set[str]] = defaultdict(set)
+    aba_ms: Counter = Counter()
+    aba_sessoes_com_tempo: dict[str, set[str]] = defaultdict(set)
+    rolagem: dict[tuple[str, str], set[str]] = defaultdict(set)
+    tempo_total_ms = 0
+    escolhas: Counter = Counter()
+    graficos: dict[str, Counter] = defaultdict(Counter)
     visoes: Counter = Counter()
     compartilhamentos: Counter = Counter()
     detalhes: Counter = Counter()
 
-    for quando, visitante, sessao, tipo, alvo, detalhe, device, pais, estado, cidade, ref, utm in linhas:
+    for quando, visitante, sessao, tipo, alvo, detalhe, ms, device, pais, estado, cidade, ref, utm in linhas:
         if tipo == "visit":
+            if alvo:
+                entradas[alvo] += 1
+                viram[alvo].add(sessao)
             sessoes.add(sessao)
             visitantes.add(visitante)
             dia = ev._dia_local(quando)
@@ -124,9 +141,25 @@ def metricas_da_pagina(db: Session, pagina: str, dias: int = 30) -> dict[str, An
             origens[utm or ref or "direto"] += 1
             aparelhos[device or "desktop"] += 1
         elif tipo == "tab_change" and alvo:
-            abas[alvo] += 1
+            trocas[alvo] += 1
+            viram[alvo].add(sessao)
+        elif tipo == "tab_time" and alvo and ms:
+            tempo_total_ms += ms
+            aba_ms[alvo] += ms
+            aba_sessoes_com_tempo[alvo].add(sessao)
+            viram[alvo].add(sessao)
+        elif tipo == "scroll_depth" and alvo and detalhe in MARCOS_DE_ROLAGEM:
+            rolagem[(alvo, detalhe)].add(sessao)
+            viram[alvo].add(sessao)
+        elif tipo == "control" and alvo and "/" in alvo:
+            aba, controle = alvo.split("/", 1)
+            escolhas[(aba, controle, detalhe or "")] += 1
+            if controle in EXPORTACOES and detalhe:
+                graficos[detalhe]["exportacoes"] += 1
         elif tipo == "view_change" and alvo:
             visoes[alvo] += 1
+            if detalhe:
+                graficos[detalhe]["trocas"] += 1
         elif tipo == "share":
             compartilhamentos[(alvo or "?", detalhe or "?")] += 1
         elif tipo == "map_detail":
@@ -141,12 +174,30 @@ def metricas_da_pagina(db: Session, pagina: str, dias: int = 30) -> dict[str, An
     def ordem(contador: Counter):
         return sorted(contador.items(), key=lambda kv: (-kv[1], str(kv[0])))
 
+    def pct(parte: int, todo: int) -> int:
+        return round(100 * parte / todo) if todo else 0
+
+    abas = [
+        {
+            "aba": aba,
+            "entradas": entradas[aba],
+            "trocas": trocas[aba],
+            "sessoes": len(quem),
+            "tempo_medio_s": (
+                round(aba_ms[aba] / 1000 / len(aba_sessoes_com_tempo[aba])) if aba_sessoes_com_tempo[aba] else 0
+            ),
+            "rolagem": {m: pct(len(rolagem[(aba, m)]), len(quem)) for m in MARCOS_DE_ROLAGEM},
+        }
+        for aba, quem in sorted(viram.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    ]
+
     return {
         "pagina": pagina,
         "periodo": {"dias": dias, "inicio": inicio.isoformat(), "fim": fim.isoformat()},
         "kpis": {
             "visitas": len(sessoes),
             "visitantes": len(visitantes),
+            "tempo_medio_s": round(tempo_total_ms / 1000 / len(sessoes)) if sessoes else 0,
             "compartilhamentos": sum(compartilhamentos.values()),
             "detalhes_no_mapa": sum(detalhes.values()),
         },
@@ -156,7 +207,15 @@ def metricas_da_pagina(db: Session, pagina: str, dias: int = 30) -> dict[str, An
         "paises": ev._top(paises, "pais", "visitas"),
         "origens": ev._top(origens, "origem", "visitas"),
         "dispositivos": ev._top(aparelhos, "aparelho", "visitas"),
-        "abas": ev._top(abas, "aba", "trocas"),
+        "abas": abas,
+        "escolhas": [
+            {"aba": a, "controle": c, "valor": v, "vezes": n}
+            for (a, c, v), n in sorted(escolhas.items(), key=lambda kv: (kv[0][0], -kv[1], kv[0][1], kv[0][2]))[:120]
+        ],
+        "graficos": [
+            {"titulo": t, "trocas": c["trocas"], "exportacoes": c["exportacoes"]}
+            for t, c in sorted(graficos.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))[:20]
+        ],
         "visoes": ev._top(visoes, "visao", "trocas"),
         "compartilhamentos": [{"peca": p, "meio": m, "total": v} for (p, m), v in ordem(compartilhamentos)],
         "detalhes_no_mapa": [{"tipo": t, "lugar": l, "cliques": v} for (t, l), v in ordem(detalhes)[:30]],

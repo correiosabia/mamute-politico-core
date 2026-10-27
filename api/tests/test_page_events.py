@@ -113,8 +113,14 @@ def test_painel_soma_visitas_abas_compartilhamentos_e_cliques_no_mapa(client: Te
     resp = client.get("/api/admin/pages/eleicoes_2026/metricas?dias=7")
     assert resp.status_code == 200
     d = resp.json()
-    assert d["kpis"] == {"visitas": 2, "visitantes": 2, "compartilhamentos": 2, "detalhes_no_mapa": 1}
-    assert d["abas"] == [{"aba": "depois-das-17h", "trocas": 1}]
+    assert d["kpis"] == {
+        "visitas": 2,
+        "visitantes": 2,
+        "tempo_medio_s": 0,
+        "compartilhamentos": 2,
+        "detalhes_no_mapa": 1,
+    }
+    assert [(a["aba"], a["entradas"], a["trocas"]) for a in d["abas"]] == [("depois-das-17h", 0, 1)]
     assert d["visoes"] == [{"visao": "mapa", "trocas": 1}]
     assert {(c["peca"], c["meio"], c["total"]) for c in d["compartilhamentos"]} == {
         ("votos-17h", "whatsapp", 1),
@@ -124,6 +130,80 @@ def test_painel_soma_visitas_abas_compartilhamentos_e_cliques_no_mapa(client: Te
     assert d["regioes"][0] == {"estado": "Santa Catarina", "pais": "BR", "visitas": 2}
     assert d["dispositivos"] == [{"aparelho": "mobile", "visitas": 2}]
     assert len(d["por_dia"]) == 8
+
+
+def _sessao(client: TestClient, n: int, *eventos: dict) -> None:
+    _post(client, {**_lote(*eventos), "visitor": f"v-visitante-{n:08d}", "session": f"s-sessao-{n:011d}"})
+
+
+def test_painel_por_aba_entrada_tempo_e_rolagem(client: TestClient) -> None:
+    # Sessão 1 entra no Perfil, lê 40 s, rola até o fim e vai para o 2º turno.
+    _sessao(
+        client,
+        1,
+        {"type": "visit", "target": "perfil"},
+        {"type": "tab_time", "target": "perfil", "duration_ms": 40_000},
+        *({"type": "scroll_depth", "target": "perfil", "detail": m} for m in ("25", "50", "75", "100")),
+        {"type": "tab_change", "target": "segundo-turno"},
+        {"type": "tab_time", "target": "segundo-turno", "duration_ms": 20_000},
+        {"type": "scroll_depth", "target": "segundo-turno", "detail": "25"},
+    )
+    # Sessão 2 entra no Perfil, lê 20 s e só chega a 25%.
+    _sessao(
+        client,
+        2,
+        {"type": "visit", "target": "perfil"},
+        {"type": "tab_time", "target": "perfil", "duration_ms": 20_000},
+        {"type": "scroll_depth", "target": "perfil", "detail": "25"},
+    )
+    # Visita antiga, de antes de a visita guardar a aba.
+    _sessao(client, 3, {"type": "visit"})
+
+    d = client.get("/api/admin/pages/eleicoes_2026/metricas?dias=7").json()
+    assert d["kpis"]["visitas"] == 3
+    assert d["kpis"]["tempo_medio_s"] == 27  # 80 s / 3 visitas
+    abas = {a["aba"]: a for a in d["abas"]}
+    assert list(abas) == ["perfil", "segundo-turno"]
+    assert abas["perfil"] == {
+        "aba": "perfil",
+        "entradas": 2,
+        "trocas": 0,
+        "sessoes": 2,
+        "tempo_medio_s": 30,
+        "rolagem": {"25": 100, "50": 50, "75": 50, "100": 50},
+    }
+    assert abas["segundo-turno"] == {
+        "aba": "segundo-turno",
+        "entradas": 0,
+        "trocas": 1,
+        "sessoes": 1,
+        "tempo_medio_s": 20,
+        "rolagem": {"25": 100, "50": 0, "75": 0, "100": 0},
+    }
+
+
+def test_painel_escolhas_por_aba_e_graficos(client: TestClient) -> None:
+    _sessao(
+        client,
+        1,
+        {"type": "visit", "target": "perfil"},
+        {"type": "control", "target": "perfil/casa", "detail": "senado"},
+        {"type": "control", "target": "perfil/casa", "detail": "senado"},
+        {"type": "control", "target": "perfil/medida", "detail": "idade"},
+        {"type": "control", "target": "segundo-turno/unidade", "detail": "total"},
+        {"type": "control", "target": "sem-barra", "detail": "x"},
+        {"type": "view_change", "target": "mapa", "detail": "Ganho por estado"},
+        {"type": "view_change", "target": "planilha", "detail": "Ganho por estado"},
+        {"type": "control", "target": "segundo-turno/grafico_baixado", "detail": "Ganho por estado"},
+    )
+    d = client.get("/api/admin/pages/eleicoes_2026/metricas?dias=7").json()
+    assert d["escolhas"] == [
+        {"aba": "perfil", "controle": "casa", "valor": "senado", "vezes": 2},
+        {"aba": "perfil", "controle": "medida", "valor": "idade", "vezes": 1},
+        {"aba": "segundo-turno", "controle": "grafico_baixado", "valor": "Ganho por estado", "vezes": 1},
+        {"aba": "segundo-turno", "controle": "unidade", "valor": "total", "vezes": 1},
+    ]
+    assert d["graficos"] == [{"titulo": "Ganho por estado", "trocas": 2, "exportacoes": 1}]
 
 
 def test_painel_de_pagina_desconhecida_e_404(client: TestClient) -> None:
