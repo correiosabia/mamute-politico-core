@@ -13,7 +13,7 @@ from ..base import Base
 class Proposition(Base):
     __tablename__ = "proposition"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     proposition_code = Column(BigInteger)
     title = Column(Text)
     link = Column(Text)

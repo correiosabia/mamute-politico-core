@@ -13,7 +13,7 @@ from ..base import Base
 class Parliamentarian(Base):
     __tablename__ = "parliamentarian"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     type = Column(Text)
     parliamentarian_code = Column(BigInteger)
     name = Column(Text)

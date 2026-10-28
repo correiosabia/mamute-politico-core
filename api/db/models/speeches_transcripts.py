@@ -12,7 +12,7 @@ from ..base import Base
 class SpeechesTranscript(Base):
     __tablename__ = "speeches_transcripts"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     parliamentarian_id = Column(
         BigInteger,
         ForeignKey("parliamentarian.id", ondelete="CASCADE"),

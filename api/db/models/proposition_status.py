@@ -12,7 +12,7 @@ from ..base import Base
 class PropositionStatus(Base):
     __tablename__ = "proposition_status"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     proposition_status_code = Column(Text)
     acronym = Column(Text)
     name = Column(Text)
