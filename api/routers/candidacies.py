@@ -363,17 +363,36 @@ def list_candidacies(
     stmt = select(Candidacy).where(Candidacy.election_year == election_year)
 
     if name:
-        # `strip` evita que espaço colado no fim vire filtro que não casa nada.
-        termo = f"%{name.strip()}%"
-        # Os dois lados passam pela mesma funcao: dobrar so a coluna faria
-        # "JOÃO" digitado pelo usuario deixar de casar com o indice dobrado.
-        padrao = func.unaccent_imutavel(termo)
-        stmt = stmt.where(
-            or_(
-                func.unaccent_imutavel(Candidacy.ballot_name).ilike(padrao),
-                func.unaccent_imutavel(Candidacy.full_name).ilike(padrao),
+        # CS-158: cada palavra é um filtro independente, com três eixos:
+        # - uma palavra sem acento: substring normalizada ("ze" casa ZE, ZÉ e AZEVEDO)
+        # - uma palavra com acento: palavra inteira, acento literal ("ZÉ" só casa ZÉ)
+        # - várias palavras: cada uma como palavra inteira (acento define normalizar
+        #   ou exigir literal); "josé medeiros" acha "JOSE ANTONIO SANTOS MEDEIROS"
+        #   que o filtro antigo (substring do termo inteiro) deixava de fora.
+        tokens = name.strip().split()
+        multi = len(tokens) > 1
+        for tok in tokens:
+            acentuado = any(ord(c) > 127 for c in tok)
+            if multi or acentuado:
+                # Palavra inteira: padding com espaço nos dois lados delimita começo
+                # e fim de nome.
+                if acentuado:
+                    ballot_expr = " " + Candidacy.ballot_name + " "
+                    full_expr = " " + Candidacy.full_name + " "
+                    padrao = f"% {tok} %"
+                else:
+                    ballot_expr = " " + func.unaccent_imutavel(Candidacy.ballot_name) + " "
+                    full_expr = " " + func.unaccent_imutavel(Candidacy.full_name) + " "
+                    padrao = func.unaccent_imutavel(f"% {tok} %")
+            else:
+                # Uma palavra sem acento: substring normalizada preserva o índice
+                # trigrama em `unaccent_imutavel(ballot_name|full_name)`.
+                ballot_expr = func.unaccent_imutavel(Candidacy.ballot_name)
+                full_expr = func.unaccent_imutavel(Candidacy.full_name)
+                padrao = func.unaccent_imutavel(f"%{tok}%")
+            stmt = stmt.where(
+                or_(ballot_expr.ilike(padrao), full_expr.ilike(padrao))
             )
-        )
 
     if state:
         stmt = stmt.where(Candidacy.state == state.strip().upper())

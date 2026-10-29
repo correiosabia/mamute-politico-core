@@ -45,6 +45,12 @@ def _make_session() -> Session:
     @event.listens_for(engine, "connect")
     def _registra_udf(dbapi_conn, _record):  # noqa: ANN001
         dbapi_conn.create_function("unaccent_imutavel", 1, _dobra_acento)
+        # SQLite nativo só faz case-fold em ASCII, então "Ã" vs "ã" não casam
+        # no ILIKE que o SQLAlchemy traduz como LOWER()+LIKE. Python's str.lower
+        # cobre Unicode e deixa o teste equivalente ao Postgres.
+        dbapi_conn.create_function(
+            "lower", 1, lambda s: s.lower() if s is not None else s
+        )
 
     with engine.begin() as conn:
         conn.exec_driver_sql(
@@ -214,6 +220,89 @@ def test_busca_por_nome_casa_urna_e_nome_completo(client):
 def test_busca_por_nome_ignora_espaco_nas_pontas(client):
     resp = client.get("/api/candidacies/", params={"name": "  luciana  "})
     assert [c["id"] for c in resp.json()] == [1]
+
+
+def _insere_fixtures_medeiros(session):
+    """Fixtures do cenário CS-158: Zé Medeiros (ballot) + variações de acento no
+    nome civil, mais um AZEVEDO/ZENAIDE pra testar as regras de borda."""
+    session.execute(
+        text(
+            "insert into candidacy (id, election_year, tse_candidate_id, "
+            "office_code, office, state, ballot_number, ballot_name, "
+            "full_name, party, parliamentarian_id, match_status) values "
+            # Nome civil com acento no "JOSÉ": o PB real do Jira.
+            "(7, 2026, 1007, 5, 'Senador', 'PB', 123, 'ZÉ MEDEIROS', "
+            "'JOSÉ ANTONIO DOS SANTOS MEDEIROS', 'PT', null, 'unmatched'), "
+            # Nome civil SEM acento: TSE guarda vários nomes assim.
+            "(8, 2026, 1008, 5, 'Senador', 'MT', 234, 'JOSE MEDEIROS', "
+            "'JOSE MEDEIROS DE MORAIS', 'PT', null, 'unmatched'), "
+            # Casos de borda para a regra de palavra inteira.
+            "(20, 2026, 2020, 5, 'Senador', 'SP', 345, 'ZÉ DA SILVA', "
+            "'JOSÉ DA SILVA', 'PT', null, 'unmatched'), "
+            "(21, 2026, 2021, 5, 'Senador', 'SP', 346, 'MARIA AZEVEDO', "
+            "'MARIA AZEVEDO SANTOS', 'PT', null, 'unmatched'), "
+            "(22, 2026, 2022, 5, 'Senador', 'SE', 347, 'ZOYA', "
+            "'ZENAIDE CAVALCANTI DE MEDEIROS', 'PT', null, 'unmatched')"
+        )
+    )
+    session.commit()
+
+
+def test_busca_multi_palavra_casa_palavras_inteiras(session, client):
+    # CS-158: "josé medeiros" tem que achar os dois (PB e MT) mesmo quando as
+    # palavras não aparecem juntas no nome civil.
+    _insere_fixtures_medeiros(session)
+
+    # Multi-palavra sem acento: normaliza e exige palavra inteira. Casa o PB
+    # ("JOSÉ ... MEDEIROS", acento no banco) e o MT ("JOSE MEDEIROS...").
+    sem_acento = client.get(
+        "/api/candidacies/", params={"name": "jose medeiros"}
+    ).json()
+    assert sorted(c["id"] for c in sem_acento) == [7, 8]
+
+    # Multi-palavra com acento literal: "josé" exige acento no banco. PB tem,
+    # MT não. Também não traz AZEVEDO nem ZENAIDE (não são palavra inteira "zé").
+    com_acento = client.get(
+        "/api/candidacies/", params={"name": "josé medeiros"}
+    ).json()
+    assert [c["id"] for c in com_acento] == [7]
+
+    # "ze medeiros" (sem acento, duas palavras) só pega quem tem "ze" como
+    # palavra inteira. ZENAIDE e AZEVEDO ficam de fora.
+    ze_medeiros = client.get(
+        "/api/candidacies/", params={"name": "ze medeiros"}
+    ).json()
+    ids = [c["id"] for c in ze_medeiros]
+    assert 7 in ids  # ballot_name "ZÉ MEDEIROS" tem "zé" inteiro
+    assert 22 not in ids  # "ZENAIDE" tem "ze" só no meio
+    assert 21 not in ids  # "AZEVEDO" idem
+
+
+def test_busca_uma_palavra_sem_acento_e_substring(session, client):
+    # Regra do Luiz: "ze" sem acento é busca solta — traz tudo que tem "ze"
+    # dentro, inclusive AZEVEDO e ZENAIDE.
+    _insere_fixtures_medeiros(session)
+
+    resp = client.get("/api/candidacies/", params={"name": "ze"}).json()
+    ids = sorted(c["id"] for c in resp)
+    assert 7 in ids   # ZÉ MEDEIROS
+    assert 20 in ids  # ZÉ DA SILVA
+    assert 21 in ids  # MARIA AZEVEDO
+    assert 22 in ids  # ZENAIDE
+
+
+def test_busca_uma_palavra_com_acento_e_exata(session, client):
+    # Regra do Luiz: acento = ID exata, palavra inteira. "ZÉ" não deve pegar
+    # AZEVEDO nem ZENAIDE, e também não casa "ZE" (sem acento) no banco.
+    _insere_fixtures_medeiros(session)
+
+    resp = client.get("/api/candidacies/", params={"name": "zé"}).json()
+    ids = sorted(c["id"] for c in resp)
+    assert 7 in ids   # ballot_name "ZÉ MEDEIROS"
+    assert 20 in ids  # ballot_name "ZÉ DA SILVA"
+    assert 8 not in ids   # ballot_name "JOSE MEDEIROS" não tem "ZÉ"
+    assert 21 not in ids  # "AZEVEDO"
+    assert 22 not in ids  # "ZENAIDE"
 
 
 def test_filtro_de_estado_e_case_insensitive(client):
