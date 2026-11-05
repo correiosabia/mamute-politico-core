@@ -8,7 +8,9 @@ denormalizados em todas as linhas.
 
 `assets_fetched_at` NULL significa patrimonio pendente de busca — mesmo papel
 do fingerprint da tabela candidacy: falha de detalhe se auto-corrige na
-proxima execucao.
+proxima execucao. Depois da busca, `assets_status` diz o que o TSE tinha
+(CS-95): `declarado`, `sem_bens` ou `nao_divulgado` (eleicao sem bens no TSE).
+Sem bens, `declared_assets` fica NULL, nunca zero.
 """
 
 from __future__ import annotations
@@ -80,6 +82,8 @@ class ElectoralHistory(Base):
     assets_count = Column(Integer)
     assets = Column(JSONB)
     assets_fetched_at = Column(DateTime)
+    # NULL enquanto assets_fetched_at for NULL; valores em history_parsing.
+    assets_status = Column(Text)
 
     source_link = Column(Text)
 

@@ -7,6 +7,7 @@ from .candidacy import Candidacy
 from .chatbot_usage import ChatbotUsage
 from .committee import Committee
 from .electoral_history import ElectoralHistory
+from .electoral_history_search import ElectoralHistorySearch
 from .editorial_agenda import (
     EditorialAgenda,
     ParliamentarianAgenda,
@@ -42,6 +43,7 @@ __all__ = [
     "CommitteeAttendance",
     "EditorialAgenda",
     "ElectoralHistory",
+    "ElectoralHistorySearch",
     "FeatureFlag",
     "FeatureFlagTier",
     "Parliamentarian",

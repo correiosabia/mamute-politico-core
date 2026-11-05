@@ -168,6 +168,21 @@ for candidates who went to the runoff. Gender and race come from the candidacy
 (`candidacy.gender`/`race`), because the results file does not carry them. A
 partial (still open) result never counts as elected anywhere in the product.
 
+### Electoral History
+
+A politician's past candidacies (the *Trajetória* tab), one row per person,
+election and office in `electoral_history`, seeded from the
+`eleicoesAnteriores` list the TSE returns in a candidacy's detail, each row
+with the assets declared in that election. Two "empty" states must not look
+the same on screen. For a row's assets, `assets_status` `NULL` means not
+fetched yet; `declarado` has a total; `sem_bens` means the TSE returned the
+candidacy with no assets listed; `nao_divulgado` means an election for which
+the TSE publishes no assets at all (before 2006). Without assets the total is
+`NULL`, never zero, so no variation starts from an empty election. For a
+parliamentarian with no row at all, `electoral_history_search` tells "not
+searched yet" (no row) from "searched the 2018/2022 general elections and not
+found" (`nao_encontrado`, `cpf_divergente`).
+
 ### Collection
 
 A curated, admin-edited page that groups people around a subject, stored in

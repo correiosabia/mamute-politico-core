@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import (
     JSON,
     Column,
+    DateTime,
     ForeignKey,
     Integer,
     Numeric,
@@ -39,6 +40,13 @@ class Candidacy(Base):
     details = Column(JSON)
 
 
+class ElectoralHistorySearch(Base):
+    __tablename__ = "electoral_history_search"
+    parliamentarian_id = Column(Integer, ForeignKey("parliamentarian.id"), primary_key=True)
+    outcome = Column(Text, nullable=False)
+    searched_at = Column(DateTime, nullable=False)
+
+
 class ElectoralHistory(Base):
     __tablename__ = "electoral_history"
     __table_args__ = (UniqueConstraint("election_year", "tse_candidate_id"),)
@@ -60,6 +68,7 @@ class ElectoralHistory(Base):
     assets_count = Column(Integer)
     assets = Column(JSON)
     assets_fetched_at = Column(Text)
+    assets_status = Column(Text)
     source_link = Column(Text)
 
 
@@ -96,6 +105,7 @@ def session(monkeypatch) -> Iterator[Session]:
     monkeypatch.setattr(eh_mod, "ElectoralHistory", ElectoralHistory)
     monkeypatch.setattr(eh_mod, "Candidacy", Candidacy)
     monkeypatch.setattr(eh_mod, "Parliamentarian", Parliamentarian)
+    monkeypatch.setattr(eh_mod, "ElectoralHistorySearch", ElectoralHistorySearch)
     with maker() as s:
         yield s
 
