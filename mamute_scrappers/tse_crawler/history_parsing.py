@@ -52,21 +52,53 @@ def build_history_payload(
     }
 
 
-def build_assets_payload(detail: Dict[str, Any]) -> Dict[str, Any]:
+# Status do patrimonio de uma linha da timeline (CS-95). NULL = ainda nao
+# buscado (assets_fetched_at NULL). Os tres valores abaixo sao "buscamos":
+ASSETS_DECLARED = "declarado"
+# O detalhe veio sem nenhum bem: a candidatura nao listou bens.
+ASSETS_NONE = "sem_bens"
+# Eleicao anterior a FIRST_YEAR_WITH_ASSETS: o TSE nao divulga bens. Medido em
+# producao em 04/11/2026: 2.060 linhas de 2004, nenhuma com bem; 2006 em diante
+# ja traz bens. Sem esse corte, a linha virava "R$ 0,00" e a variacao seguinte
+# partia de zero (165 parlamentares com alta falsa na Trajetoria).
+ASSETS_NOT_PUBLISHED = "nao_divulgado"
+FIRST_YEAR_WITH_ASSETS = 2006
+
+
+def build_assets_payload(detail: Dict[str, Any], election_year: int) -> Dict[str, Any]:
     """Extrai patrimonio de um payload de detalhe (ou do `details` da 2026).
 
-    `totalDeBens` e a fonte da verdade; na ausencia dele, soma dos itens.
+    `totalDeBens` e a fonte da verdade; na ausencia dele, soma dos itens. Sem
+    nenhum bem o total fica NULL, nunca zero: o TSE devolve `totalDeBens: 0`
+    tambem quando nao tem a declaracao, e um zero na tela seria lido como
+    "declarou nao ter patrimonio".
     """
     bens = detail.get("bens")
     items: List[Dict[str, Any]] = bens if isinstance(bens, list) else []
 
+    if not items:
+        status = ASSETS_NOT_PUBLISHED if election_year < FIRST_YEAR_WITH_ASSETS else ASSETS_NONE
+        return {"declared_assets": None, "assets_count": 0, "assets": [], "assets_status": status}
+
     total = _parse_decimal(detail.get("totalDeBens"))
-    if total is None and items:
+    if total is None:
         parcels = [_parse_decimal(item.get("valor")) for item in items]
         valid = [p for p in parcels if p is not None]
         total = sum(valid, Decimal("0.00")) if valid else None
 
-    return {"declared_assets": total, "assets_count": len(items), "assets": items}
+    return {
+        "declared_assets": total,
+        "assets_count": len(items),
+        "assets": items,
+        "assets_status": ASSETS_DECLARED,
+    }
 
 
-__all__ = ["build_assets_payload", "build_history_payload"]
+__all__ = [
+    "ASSETS_DECLARED",
+    "ASSETS_NONE",
+    "ASSETS_NOT_PUBLISHED",
+    "FIRST_YEAR_WITH_ASSETS",
+    "build_assets_payload",
+    "build_history_payload",
+]

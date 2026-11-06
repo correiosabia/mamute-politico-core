@@ -14,7 +14,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from mamute_scrappers.tse_crawler import electoral_history as eh_mod
 
-from test_tse_history_seed import Base, Candidacy, ElectoralHistory, Parliamentarian
+from test_tse_history_seed import (
+    Base,
+    Candidacy,
+    ElectoralHistory,
+    ElectoralHistorySearch,
+    Parliamentarian,
+)
 
 
 @pytest.fixture()
@@ -25,6 +31,7 @@ def session(monkeypatch) -> Iterator[Session]:
     monkeypatch.setattr(eh_mod, "ElectoralHistory", ElectoralHistory)
     monkeypatch.setattr(eh_mod, "Candidacy", Candidacy)
     monkeypatch.setattr(eh_mod, "Parliamentarian", Parliamentarian)
+    monkeypatch.setattr(eh_mod, "ElectoralHistorySearch", ElectoralHistorySearch)
     with maker() as s:
         yield s
 

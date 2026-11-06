@@ -7,11 +7,17 @@ Tres fases, todas idempotentes:
    candidaturas novas ganham timeline sozinhas. A linha do proprio 2026 ja
    nasce com patrimonio, copiado de candidacy.details (bens ja armazenados).
 2. Semear parlamentares sem candidatura 2026: varre listagens das gerais
-   2022/2018 (cargos 1/3/5/6), casa por nome+UF com confirmacao de CPF via
-   detalhe quando o parlamentar tem CPF, e semeia a timeline completa a
-   partir do `eleicoesAnteriores` do detalhe (municipais incluidas).
+   2022/2018 (cargos 1/3/5/6 e suplentes de senador 9/10), casa pelo id de
+   uma candidatura ja vinculada ao parlamentar ou por nome+UF com confirmacao
+   de CPF via detalhe quando o parlamentar tem CPF, e semeia a timeline
+   completa a partir do `eleicoesAnteriores` do detalhe (municipais
+   incluidas). Cada varredura completa grava o resultado por parlamentar em
+   electoral_history_search (CS-95).
 3. Drenar patrimonio: linhas com assets_fetched_at NULL -> detalhe daquele
-   ano/eleicao -> bens. Parlamentares primeiro, depois anos mais recentes.
+   ano/eleicao -> bens, com assets_status dizendo o que o TSE tinha (CS-95).
+   Parlamentares primeiro, depois anos mais recentes.
+
+`--status` mede a cobertura sem chamar o TSE (so leitura).
 
 Nenhuma transacao fica aberta enquanto o job espera o TSE (CS-126): em
 04/10/2026 a fase 3 ficou 8 h "idle in transaction", travando o autovacuum e
@@ -29,6 +35,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy import func
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -41,6 +49,7 @@ from mamute_scrappers.tse_crawler.history_parsing import (  # noqa: E402
 from mamute_scrappers.tse_crawler.parsing import (  # noqa: E402
     normalize_cpf,
     normalize_text,
+    parse_int,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,10 +65,19 @@ MAX_FALHAS_SEGUIDAS = 10
 # .all() antes de qualquer commit.
 SEED_BATCH_SIZE = 500
 SEED_ELECTION_YEARS = (2022, 2018)
-# presidente, governador, senador, dep. federal — todo parlamentar em
-# exercicio disputou um destes cargos numa geral; estaduais nao sao
-# necessarios para encontra-los.
-SEED_OFFICE_CODES = (1, 3, 5, 6)
+# presidente, governador, senador, dep. federal e 1o/2o suplente de senador —
+# todo parlamentar em exercicio disputou um destes cargos numa geral;
+# estaduais nao sao necessarios para encontra-los. Sem os suplentes, os
+# senadores que assumiram a vaga do titular nunca eram achados: em 04/11/2026
+# eram os 10 parlamentares sem nenhuma linha de timeline (CS-95).
+SEED_OFFICE_CODES = (1, 3, 5, 6, 9, 10)
+
+# Resultado da varredura da fase 2 (electoral_history_search.outcome):
+# encontrado e semeado; varredura completa sem o nome nem o id do
+# parlamentar; achado pelo nome, mas com CPF diferente no detalhe.
+SEARCH_FOUND = "encontrado"
+SEARCH_NOT_FOUND = "nao_encontrado"
+SEARCH_CPF_MISMATCH = "cpf_divergente"
 
 UFS = (
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS",
@@ -68,6 +86,7 @@ UFS = (
 )
 
 ElectoralHistory: Any = None
+ElectoralHistorySearch: Any = None
 Candidacy: Any = None
 Parliamentarian: Any = None
 
@@ -89,7 +108,13 @@ _DISPUTE_FIELDS = (
 _LINK_FIELDS = ("parliamentarian_id", "candidacy_id")
 # Assets so sao escritos quando o payload traz assets_fetched_at: um reseed
 # de esqueleto nao pode zerar patrimonio ja coletado.
-_ASSET_FIELDS = ("declared_assets", "assets_count", "assets", "assets_fetched_at")
+_ASSET_FIELDS = (
+    "declared_assets",
+    "assets_count",
+    "assets",
+    "assets_status",
+    "assets_fetched_at",
+)
 
 
 def _load_env_file() -> None:
@@ -109,16 +134,18 @@ def _load_env_file() -> None:
 
 
 def _ensure_models() -> None:
-    global ElectoralHistory, Candidacy, Parliamentarian
+    global ElectoralHistory, ElectoralHistorySearch, Candidacy, Parliamentarian
     if ElectoralHistory is not None:
         return
     from mamute_scrappers.db.models import (
         Candidacy as CandidacyRuntime,
         ElectoralHistory as ElectoralHistoryRuntime,
+        ElectoralHistorySearch as ElectoralHistorySearchRuntime,
         Parliamentarian as ParliamentarianRuntime,
     )
 
     ElectoralHistory = ElectoralHistoryRuntime
+    ElectoralHistorySearch = ElectoralHistorySearchRuntime
     Candidacy = CandidacyRuntime
     Parliamentarian = ParliamentarianRuntime
 
@@ -198,7 +225,7 @@ def _seed_entries(
             logger.warning("Entrada de historico malformada ignorada: %s", entry)
             continue
         if assets_source is not None and payload["election_year"] == assets_year:
-            payload.update(build_assets_payload(assets_source))
+            payload.update(build_assets_payload(assets_source, assets_year))
             payload["assets_fetched_at"] = datetime.utcnow()
         _, created = upsert_history(session, payload)
         counters["created" if created else "updated"] += 1
@@ -263,6 +290,39 @@ def _pending_parliamentarians(session: Any) -> List[Any]:
     )
 
 
+def _linked_candidacy_ids(session: Any, pending_ids: List[int]) -> Dict[Tuple[int, int], int]:
+    """(ano, id TSE) -> parlamentar, das candidaturas gerais ja vinculadas.
+
+    O id dos dados abertos (SQ_CANDIDATO) e o mesmo da DivulgaCandContas, entao
+    o vinculo que a carga de candidaturas ja resolveu dispensa casar por nome
+    ("Dra. Eudocia" nao bate com o nome de urna do TSE).
+    """
+    if not pending_ids:
+        return {}
+    rows = (
+        session.query(
+            Candidacy.election_year,
+            Candidacy.tse_candidate_id,
+            Candidacy.parliamentarian_id,
+        )
+        .filter(
+            Candidacy.parliamentarian_id.in_(pending_ids),
+            Candidacy.election_year.in_(SEED_ELECTION_YEARS),
+        )
+        .all()
+    )
+    return {(year, tse_id): pid for year, tse_id, pid in rows}
+
+
+def _record_search(session: Any, parliamentarian_id: int, outcome: str) -> None:
+    record = session.get(ElectoralHistorySearch, parliamentarian_id)
+    if record is None:
+        record = ElectoralHistorySearch(parliamentarian_id=parliamentarian_id)
+        session.add(record)
+    record.outcome = outcome
+    record.searched_at = datetime.utcnow()
+
+
 def seed_missing_parliamentarians(
     session: Any, client: DivulgaCandClient
 ) -> Dict[str, int]:
@@ -280,6 +340,7 @@ def seed_missing_parliamentarians(
 
     pending: Dict[int, Any] = {row[0]: row for row in _pending_parliamentarians(session)}
     counters["pending_initial"] = len(pending)
+    linked = _linked_candidacy_ids(session, list(pending))
     # Fecha a transacao da leitura antes das listagens do TSE (CS-126).
     session.commit()
     if not pending:
@@ -296,12 +357,20 @@ def seed_missing_parliamentarians(
                         bucket.append(pid)
         return index
 
+    # So uma varredura inteira autoriza gravar "nao encontrado". Listagem
+    # ilegivel ja interrompe com IncompleteListingError; eleicao nao achada
+    # deixa a varredura incompleta sem interromper.
+    complete = True
+    cpf_rejected: set = set()
+    # Achado na listagem, mas o detalhe nao veio: nao e "nao encontrado".
+    detail_failed: set = set()
     for year in SEED_ELECTION_YEARS:
         if not pending:
             break
         election_id = client.find_general_election_id(year)
         if election_id is None:
             logger.warning("Eleicao geral %s nao encontrada; pulando.", year)
+            complete = False
             continue
         index = index_pending()
         for office_code in SEED_OFFICE_CODES:
@@ -311,28 +380,34 @@ def seed_missing_parliamentarians(
                     break
                 candidates = client.list_candidates(year, uf, election_id, office_code)
                 for item in candidates:
-                    hits: List[int] = []
-                    for name_key in (item.get("nomeCompleto"), item.get("nomeUrna")):
-                        key = normalize_text(name_key)
-                        for pid in index.get(key, []):
-                            if pid in pending and pid not in hits:
-                                hits.append(pid)
-                    # Exatamente um alvo pendente, com UF de eleicao batendo
-                    # (BR/presidente nao filtra) — mesma regra da candidacy.
-                    if len(hits) != 1:
-                        continue
-                    pid = hits[0]
+                    by_id = linked.get((year, parse_int(item.get("id"))))
+                    if by_id in pending:
+                        pid = by_id
+                    else:
+                        hits: List[int] = []
+                        for name_key in (item.get("nomeCompleto"), item.get("nomeUrna")):
+                            key = normalize_text(name_key)
+                            for pid in index.get(key, []):
+                                if pid in pending and pid not in hits:
+                                    hits.append(pid)
+                        # Exatamente um alvo pendente, com UF de eleicao batendo
+                        # (BR/presidente nao filtra) — mesma regra da candidacy.
+                        if len(hits) != 1:
+                            continue
+                        pid = hits[0]
+                        if uf != "BR" and normalize_text(pending[pid][4]) != normalize_text(uf):
+                            continue
                     row = pending[pid]
-                    if uf != "BR" and normalize_text(row[4]) != normalize_text(uf):
-                        continue
                     detail = client.get_candidate_detail(
                         year, uf, election_id, item.get("id")
                     )
                     if detail is None:
+                        detail_failed.add(pid)
                         continue
                     parl_cpf = normalize_cpf(row[3])
                     if parl_cpf and normalize_cpf(detail.get("cpf")) != parl_cpf:
                         counters["cpf_rejected"] += 1
+                        cpf_rejected.add(pid)
                         continue
                     _seed_entries(
                         session,
@@ -343,11 +418,17 @@ def seed_missing_parliamentarians(
                         assets_year=year,
                         counters=counters,
                     )
+                    _record_search(session, pid, SEARCH_FOUND)
                     session.commit()
                     counters["seeded"] += 1
                     del pending[pid]
                     index = index_pending()
 
+    if complete:
+        for pid in set(pending) - detail_failed:
+            _record_search(
+                session, pid, SEARCH_CPF_MISMATCH if pid in cpf_rejected else SEARCH_NOT_FOUND
+            )
     session.commit()
     counters["still_pending"] = len(pending)
     if pending:
@@ -416,13 +497,78 @@ def drain_assets(
                 # criaria outra linha e a original ficaria pendente para sempre.
                 "state": state,
                 "tse_candidate_id": candidate_id,
-                **build_assets_payload(detail),
+                **build_assets_payload(detail, year),
                 "assets_fetched_at": datetime.utcnow(),
             },
         )
         session.commit()
         counters["fetched"] += 1
     return counters
+
+
+def coverage(session: Any) -> Dict[str, Any]:
+    """Cobertura da timeline, so leitura e sem TSE (CS-95)."""
+    _ensure_models()
+    with_rows = session.query(ElectoralHistory.parliamentarian_id).filter(
+        ElectoralHistory.parliamentarian_id.isnot(None)
+    )
+    total = session.query(Parliamentarian.id).count()
+    without = (
+        session.query(Parliamentarian.id, ElectoralHistorySearch.outcome)
+        .outerjoin(
+            ElectoralHistorySearch,
+            ElectoralHistorySearch.parliamentarian_id == Parliamentarian.id,
+        )
+        .filter(~Parliamentarian.id.in_(with_rows))
+        .all()
+    )
+    sem_timeline: Dict[str, int] = {}
+    for _, outcome in without:
+        key = outcome or "nao_buscado"
+        sem_timeline[key] = sem_timeline.get(key, 0) + 1
+
+    linhas: Dict[str, int] = {}
+    for fetched, status, count in (
+        session.query(
+            ElectoralHistory.assets_fetched_at.isnot(None),
+            ElectoralHistory.assets_status,
+            func.count(),
+        )
+        .group_by(ElectoralHistory.assets_fetched_at.isnot(None), ElectoralHistory.assets_status)
+        .all()
+    ):
+        key = status or ("sem_status" if fetched else "nao_buscado")
+        linhas[key] = linhas.get(key, 0) + count
+
+    return {
+        "parlamentares": total,
+        "com_timeline": total - len(without),
+        "sem_timeline": sem_timeline,
+        "patrimonio_por_linha": linhas,
+    }
+
+
+def print_status(max_details: Optional[int]) -> None:
+    _load_env_file()
+    _ensure_models()
+    from mamute_scrappers.db import session_scope
+
+    with session_scope() as session:
+        status = coverage(session)
+    print(
+        f"Parlamentares: {status['parlamentares']}, com timeline: {status['com_timeline']}. "
+        f"Sem timeline: {status['sem_timeline'] or 0}."
+    )
+    linhas = status["patrimonio_por_linha"]
+    print(f"Patrimonio por linha: {linhas}.")
+    pendentes = linhas.get("nao_buscado", 0)
+    if pendentes and max_details:
+        print(
+            f"Fila da fase 3: {pendentes} linhas; a {max_details} por dia fecha em "
+            f"{-(-pendentes // max_details)} dia(s), se o TSE responder."
+        )
+    else:
+        print(f"Fila da fase 3: {pendentes} linhas.")
 
 
 def run(
@@ -483,11 +629,19 @@ if __name__ == "__main__":
         type=int,
         help="Teto de tempo da fase 3; o que sobrar fica para a proxima execucao.",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="So mede a cobertura (sem TSE); com --max-details, estima a fila em dias.",
+    )
 
     args = parser.parse_args()
-    run(
-        max_details=args.max_details,
-        skip_seed=args.skip_seed,
-        parliamentarians_only=args.parliamentarians_only,
-        max_minutes=args.max_minutes,
-    )
+    if args.status:
+        print_status(args.max_details)
+    else:
+        run(
+            max_details=args.max_details,
+            skip_seed=args.skip_seed,
+            parliamentarians_only=args.parliamentarians_only,
+            max_minutes=args.max_minutes,
+        )

@@ -222,6 +222,52 @@ turno vêm duplicadas em dobro; cor/raça só existe desde **2014** e federaçã
 desde **2022** (NULL antes disso é lacuna da fonte). O CSV nunca sobrescreve
 campo preenchido pela API — só completa NULL.
 
+### Trajetória eleitoral (histórico + patrimônio) — CS-54, CS-95
+
+`tse_crawler.electoral_history` monta a tabela `electoral_history` (aba
+Trajetória) em três fases, todo dia às 06h50 UTC: semeia do `details` das
+candidaturas 2026 já locais; procura nas listagens das gerais 2022/2018
+(presidente, governador, senador, deputado federal e 1º/2º suplente de
+senador) o parlamentar que ainda não tem linha nenhuma; e drena o patrimônio
+das linhas ainda não buscadas, até `--max-details` por dia.
+
+O que a tela não pode confundir fica gravado:
+
+| Onde | Valor | Significado |
+|---|---|---|
+| `electoral_history.assets_status` | `NULL` | patrimônio ainda não buscado |
+| | `declarado` | o TSE lista bens; `declared_assets` tem o total |
+| | `sem_bens` | o TSE devolveu a candidatura sem nenhum bem |
+| | `nao_divulgado` | eleição anterior a 2006: o TSE não divulga bens |
+| `electoral_history_search.outcome` | sem linha | parlamentar ainda não procurado |
+| | `encontrado` | achado e semeado |
+| | `nao_encontrado` | varredura completa sem o nome nem o id dele |
+| | `cpf_divergente` | achado pelo nome, CPF diferente no detalhe |
+
+Sem bens, `declared_assets` fica `NULL`: o TSE manda `totalDeBens: 0` também
+quando não tem a declaração, e o zero na tela virava "R$ 0,00" e base de
+variação. "Não encontrado" só é gravado depois de uma varredura inteira.
+Quando uma listagem não pode ser lida, ninguém é marcado.
+
+```bash
+python -m mamute_scrappers.tse_crawler.electoral_history --status --max-details 5000  # cobertura, sem TSE
+python -m mamute_scrappers.tse_crawler.electoral_history --max-details 5000 --max-minutes 180
+```
+
+Medido em produção em 04/11/2026: fila de patrimônio zerada desde 12/10/2026,
+63 mil linhas buscadas e 636 de 646 parlamentares com trajetória. Os 10
+restantes eram senadores que assumiram como 1º suplente, fora da varredura
+até a CS-95. Ritmo quando o TSE responde: ~1,1 detalhe/s. O teto de 5000/dia
+segurou a fila um dia só, na carga inicial. O que parou a drenagem foi o
+bloqueio 403 do Akamai: nenhuma linha buscada de 19/08 a 09/10, resolvido com o
+`curl_cffi` da CS-126.
+
+Gotchas da DivulgaCandContas: o CDN só aceita cliente que pareça navegador
+(TLS do Chrome via `curl_cffi`; `requests` toma 403 com qualquer header). Quando
+o limite de requisições estoura, a resposta não chega como 429: aparece no log
+como falha ao ler o JSON (`Falha na DivulgaCandContas`), não como bloqueio.
+Dez falhas seguidas encerram a fase 3 do dia.
+
 ### Temas oficiais das proposições — CS-92
 
 `proposition.themes` guarda as áreas temáticas oficiais da Casa (lista, na

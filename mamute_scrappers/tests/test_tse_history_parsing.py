@@ -50,7 +50,7 @@ def test_entrada_sem_id_ou_ano_e_descartada():
 
 def test_build_assets_payload_usa_total_da_fonte():
     detail = {"totalDeBens": 1036642.25, "bens": [{"valor": 1000.0}, {"valor": 500.5}]}
-    payload = history_parsing.build_assets_payload(detail)
+    payload = history_parsing.build_assets_payload(detail, 2022)
     assert payload["declared_assets"] == Decimal("1036642.25")
     assert payload["assets_count"] == 2
     assert payload["assets"] == detail["bens"]
@@ -58,11 +58,36 @@ def test_build_assets_payload_usa_total_da_fonte():
 
 def test_build_assets_payload_soma_quando_nao_ha_total():
     detail = {"totalDeBens": None, "bens": [{"valor": 1000.0}, {"valor": 500.5}]}
-    assert history_parsing.build_assets_payload(detail)["declared_assets"] == Decimal(
+    assert history_parsing.build_assets_payload(detail, 2022)["declared_assets"] == Decimal(
         "1500.50"
     )
 
 
+def test_build_assets_payload_com_bens_e_declarado():
+    payload = history_parsing.build_assets_payload({"totalDeBens": 0, "bens": [{"valor": 0}]}, 2022)
+    assert payload["assets_status"] == "declarado"
+    assert payload["declared_assets"] == Decimal("0.00")
+
+
 def test_build_assets_payload_sem_bens():
-    payload = history_parsing.build_assets_payload({"totalDeBens": None, "bens": None})
-    assert payload == {"declared_assets": None, "assets_count": 0, "assets": []}
+    payload = history_parsing.build_assets_payload({"totalDeBens": None, "bens": None}, 2022)
+    assert payload == {
+        "declared_assets": None,
+        "assets_count": 0,
+        "assets": [],
+        "assets_status": "sem_bens",
+    }
+
+
+def test_build_assets_payload_sem_bens_nao_vira_zero():
+    """CS-95: o TSE manda totalDeBens 0 sem nenhum bem. Gravar o zero punha
+    "R$ 0,00" na Trajetoria e a variacao seguinte partia dele."""
+    payload = history_parsing.build_assets_payload({"totalDeBens": 0, "bens": []}, 2018)
+    assert payload["declared_assets"] is None
+    assert payload["assets_status"] == "sem_bens"
+
+
+def test_build_assets_payload_eleicao_sem_bens_no_tse():
+    payload = history_parsing.build_assets_payload({"totalDeBens": 0, "bens": []}, 2004)
+    assert payload["declared_assets"] is None
+    assert payload["assets_status"] == "nao_divulgado"

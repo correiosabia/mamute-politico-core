@@ -58,6 +58,7 @@ class ElectoralHistory(Base):
     assets_count = Column(Integer)
     assets = Column(Text)
     assets_fetched_at = Column(Text)
+    assets_status = Column(Text)
     source_link = Column(Text)
 
 
