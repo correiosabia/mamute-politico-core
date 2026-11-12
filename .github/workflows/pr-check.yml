@@ -1,0 +1,52 @@
+name: PR Check
+
+# [CS-78] Toda PR contra a main roda a suite inteira do core (ci.yml). No merge,
+# o main.yml so roda a suite de novo se o codigo que chegou na main for outro.
+on:
+  pull_request:
+    branches:
+      - main
+
+# Push novo na mesma PR cancela o check que ainda esta rodando para o commit
+# anterior: o resultado dele nao serve mais e so gastaria minutos de runner.
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # Registra QUAL codigo passou nos testes, para o deploy nao rodar a suite de novo.
+  # No evento pull_request o GitHub testa o commit refs/pull/N/merge (a PR ja mesclada
+  # com a base daquele momento), que e o github.sha aqui. A arvore de arquivos dele vai
+  # num status do commit da PR (contexto ci/arvore-testada). No push, o job "decidir"
+  # compara essa arvore com a da main: igual = mesmo codigo byte a byte, pula a suite;
+  # diferente (a main andou depois do check) = roda a suite antes de publicar.
+  # Mesmo desenho da DEV-978 da Sinusal.
+  registrar-arvore:
+    name: Registrar arvore testada
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      statuses: write
+      contents: read
+    steps:
+      - name: Gravar status ci/arvore-testada no commit da PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA_TESTADO: ${{ github.sha }}
+          SHA_PR: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          ARVORE=$(gh api "repos/$REPO/commits/$SHA_TESTADO" --jq '.commit.tree.sha')
+          gh api "repos/$REPO/statuses/$SHA_PR" \
+            -f state=success \
+            -f context=ci/arvore-testada \
+            -f description="$ARVORE" > /dev/null
+          echo "Arvore testada: $ARVORE (commit de teste $SHA_TESTADO, PR $SHA_PR)" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -2,20 +2,15 @@ name: CI Mamute Core
 
 # Este repo e o NUCLEO ABERTO do Mamute Politico (API + coletores). O deploy de
 # producao NAO mora aqui: vive no repo privado correiosabia/mamute-politico-app,
-# que recompoe a arvore com este repo em cada deploy. Merge na main daqui NAO
-# deploya sozinho — o proximo deploy do app (push la, ou Run workflow) leva o
-# main mais recente daqui junto.
+# que recompoe a arvore com este repo em cada deploy (manual, desde a CS-78). Antes
+# de subir, o deploy do app confere que o commit da main daqui tem o run de push
+# verde (main.yml) e NAO roda estes testes de novo.
+#
+# [CS-78] Suite reaproveitada por dois workflows:
+#   - pr-check.yml: toda PR roda a suite e grava a arvore testada (ci/arvore-testada).
+#   - main.yml: push na main roda a suite SO se o codigo nao for o testado na PR.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-
-concurrency:
-  group: ci-core-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call:
 
 permissions:
   contents: read
