@@ -30,7 +30,7 @@ def _make_session(estado: str = "publica") -> Session:
             """create table page_event (id integer primary key autoincrement, page text not null,
                created_at datetime default current_timestamp, visitor_id text, session_id text,
                event_type text not null, target text, detail text, duration_ms integer, device text,
-               country text, region text, city text, referrer_host text, utm_source text,
+               country text, region text, city text, lat real, lon real, referrer_host text, utm_source text,
                utm_medium text, utm_campaign text)"""
         )
     return sessionmaker(bind=engine, expire_on_commit=False)()

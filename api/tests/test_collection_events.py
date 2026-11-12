@@ -36,7 +36,7 @@ def _make_session() -> Session:
                collection_id integer not null, created_at datetime default current_timestamp,
                visitor_id text, session_id text, event_type text not null, target text,
                detail text, duration_ms integer, device text, country text, region text,
-               city text, referrer_host text, utm_source text, utm_medium text, utm_campaign text)"""
+               city text, lat real, lon real, referrer_host text, utm_source text, utm_medium text, utm_campaign text)"""
         )
         conn.exec_driver_sql(
             "insert into collection values (1,'caso-a','Caso A','published','2026-10-01'),"

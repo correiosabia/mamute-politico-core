@@ -48,7 +48,7 @@ def _make_session() -> Session:
         )
         conn.exec_driver_sql(
             "create table usage_events (id integer primary key, projeto_id integer, email text, "
-            "event_type text not null, page text, parliamentarian_id integer, created_at datetime)"
+            "event_type text not null, page text, parliamentarian_id integer, country text, region text, city text, lat real, lon real, created_at datetime)"
         )
         conn.exec_driver_sql(
             "insert into tiers (id, tier_name_debug, product_id, detalhes) values (1,'Cid','cidadao-mamute',:d)",

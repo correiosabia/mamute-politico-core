@@ -69,6 +69,8 @@ def grava_lote(
         country=regiao[0],
         region=regiao[1],
         city=regiao[2],
+        lat=ev.coordenadas(regiao)[0],
+        lon=ev.coordenadas(regiao)[1],
         referrer_host=ev.host_de_origem(referrer),
         utm_source=ev._corta(utm.get("source")),
         utm_medium=ev._corta(utm.get("medium")),

@@ -37,6 +37,7 @@ try:
     from ..services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
     from ..services.stripe_fees import taxas_do_mes
     from ..services import metric_milestones
+    from ..services import acessos
     from ..services.openrouter_credits import credits_overview
     from ..services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -95,6 +96,7 @@ except ImportError:  # execução dentro de api/
     from services.ghost_finance_sync import garantir_sync_recente, sincronizar, ultimo_sync
     from services.stripe_fees import taxas_do_mes
     from services import metric_milestones
+    from services import acessos
     from services.openrouter_credits import credits_overview
     from services.feature_flags import (
         count_tiers_enabled as count_feature_flag_tiers,
@@ -496,6 +498,17 @@ def metrics_users_route(
         "usd_brl_rate": round(rate, 4),
         "users": metrics_users(db, period, rate, limit=limit, search=search),
     }
+
+
+@router.get("/metrics/acessos")
+def metrics_acessos_route(
+    dias: int = 7,
+    minutos: int = 15,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_ghost_admin),
+) -> dict[str, Any]:
+    """CS-87: ativos agora, mapa por UF/cidade no período e quadro de horários."""
+    return acessos.painel(db, dias, minutos)
 
 
 @router.get("/metrics/tools")

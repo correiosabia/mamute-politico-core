@@ -26,7 +26,7 @@ def _make_session() -> Session:
         conn.exec_driver_sql(
             """create table usage_events (id integer primary key, projeto_id integer,
                email text, event_type text not null, page text, section text,
-               parliamentarian_id integer, created_at datetime default current_timestamp)"""
+               parliamentarian_id integer, country text, region text, city text, lat real, lon real, created_at datetime default current_timestamp)"""
         )
         conn.exec_driver_sql(
             "insert into projetos (id, nome, email) values (1, 'Ana', 'ana@x.com')"
