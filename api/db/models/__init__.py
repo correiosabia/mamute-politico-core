@@ -23,6 +23,7 @@ from .editorial_agenda import (
 from .feature_flag import FeatureFlag, FeatureFlagTier
 from .model_pricing import ModelPricing
 from .marcacoes_config import MarcacoesConfig
+from .member_presence import MemberPresence, MemberPresenceHour
 from .personal_marks import ParliamentarianTag, ProjectMamutometro, ProjectTag
 from .parliamentarian import Parliamentarian
 from .parliamentary_amendment import ParliamentaryAmendment
@@ -56,6 +57,8 @@ __all__ = [
     "CollectionMember",
     "CollectionEvent",
     "PageEvent",
+    "MemberPresence",
+    "MemberPresenceHour",
     "OfficialAgendaItem",
     "Committee",
     "CommitteeAttendance",

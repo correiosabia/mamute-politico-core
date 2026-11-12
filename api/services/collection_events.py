@@ -167,8 +167,15 @@ def _abre_base() -> Any:
     return _leitor
 
 
-def regiao_do_ip(ip: Optional[str]) -> Optional[tuple[Optional[str], Optional[str], Optional[str]]]:
-    """(país ISO, estado, cidade) aproximados, ou None."""
+def regiao_do_ip(
+    ip: Optional[str],
+) -> Optional[tuple[Optional[str], Optional[str], Optional[str], Optional[float], Optional[float]]]:
+    """(país ISO, estado, cidade, latitude, longitude) aproximados, ou None.
+
+    A coordenada é a da cidade na base (o centro dela), não a de quem acessou
+    (CS-87: pontos de cidade no mapa do admin). Quem só precisa da região lê
+    os três primeiros itens; use `coordenadas` para os dois últimos.
+    """
     leitor = _abre_base() if ip else None
     if leitor is None:
         return None
@@ -184,7 +191,20 @@ def regiao_do_ip(ip: Optional[str]) -> Optional[tuple[Optional[str], Optional[st
     pais = (dado.get("country") or {}).get("iso_code")
     subdivisoes = dado.get("subdivisions") or []
     estado = nome(subdivisoes[0]) if subdivisoes else None
-    return pais, _corta(estado), _corta(nome(dado.get("city")))
+    local = dado.get("location") or {}
+    lat, lon = local.get("latitude"), local.get("longitude")
+    if lat is not None and lon is not None:
+        lat, lon = round(float(lat), 2), round(float(lon), 2)
+    else:
+        lat = lon = None
+    return pais, _corta(estado), _corta(nome(dado.get("city"))), lat, lon
+
+
+def coordenadas(regiao: Optional[tuple]) -> tuple[Optional[float], Optional[float]]:
+    """Latitude e longitude de um resultado de `regiao_do_ip` (None se faltar)."""
+    if not regiao or len(regiao) < 5:
+        return None, None
+    return regiao[3], regiao[4]
 
 
 # --------------------------------------------------------------------------
@@ -225,6 +245,8 @@ def grava_lote(
         country=regiao[0],
         region=regiao[1],
         city=regiao[2],
+        lat=coordenadas(regiao)[0],
+        lon=coordenadas(regiao)[1],
         referrer_host=host_de_origem(referrer),
         utm_source=_corta(utm.get("source")),
         utm_medium=_corta(utm.get("medium")),

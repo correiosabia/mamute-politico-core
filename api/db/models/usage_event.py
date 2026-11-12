@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, DateTime, Index, Text
+from sqlalchemy import BigInteger, Column, DateTime, Float, Index, Text
 from sqlalchemy.sql import func
 
 from ..base import Base
@@ -22,6 +22,13 @@ class UsageEvent(Base):
     page = Column(Text, nullable=True)
     section = Column(Text, nullable=True)
     parliamentarian_id = Column(BigInteger, nullable=True)
+    # Localidade estimada pelo IP na gravação (CS-87). O IP não é guardado. Depois de
+    # 90 dias estes campos são apagados (`services.acessos.limpar_localidades_antigas`).
+    country = Column(Text, nullable=True)
+    region = Column(Text, nullable=True)
+    city = Column(Text, nullable=True)
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -7,7 +7,7 @@ gerados no navegador. A região é estimada pelo IP na hora da gravação.
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, DateTime, Index, Integer, Text
+from sqlalchemy import BigInteger, Column, DateTime, Float, Index, Integer, Text
 from sqlalchemy.sql import func
 
 from ..base import Base
@@ -30,6 +30,9 @@ class PageEvent(Base):
     country = Column(Text)
     region = Column(Text)
     city = Column(Text)
+    # Centro da cidade na base de IP (CS-87), não a posição de quem acessou.
+    lat = Column(Float)
+    lon = Column(Float)
     referrer_host = Column(Text)
     utm_source = Column(Text)
     utm_medium = Column(Text)
