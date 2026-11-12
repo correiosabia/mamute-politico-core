@@ -1,0 +1,63 @@
+name: CI Mamute Core (main)
+
+# [CS-78] Push na main. Nao deploya (o deploy e do repo app). Roda a suite (ci.yml)
+# so se o codigo exato ainda nao foi testado: o PR Check grava a arvore testada no
+# status ci/arvore-testada do commit da PR; se a arvore que chegou na main for a mesma,
+# pula. Roda quando a main andou depois do check, em push direto, ou se qualquer
+# consulta a API falhar (na duvida, testa).
+#
+# O deploy do app olha a conclusao DESTE run no commit da main: sucesso (suite passou
+# ou foi pulada por ser o codigo testado) libera; falha ou ainda rodando bloqueia.
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-core-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  decidir:
+    name: Decidir se roda os testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      rodar_testes: ${{ steps.decisao.outputs.rodar_testes }}
+    steps:
+      - name: Comparar arvore do push com a testada na PR
+        id: decisao
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          rodar() { echo "rodar_testes=true" >> "$GITHUB_OUTPUT"; echo "Roda a suite: $1" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+
+          ARVORE=$(gh api "repos/$REPO/commits/$SHA" --jq '.commit.tree.sha') || rodar "falha ao ler a arvore do commit $SHA"
+          HEADS=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[] | select(.merged_at != null) | .head.sha') || rodar "falha ao buscar a PR do commit"
+          [ -n "$HEADS" ] || rodar "commit $SHA nao veio de PR mergeada (push direto)"
+
+          for H in $HEADS; do
+            TESTADAS=$(gh api --paginate "repos/$REPO/commits/$H/statuses" \
+              --jq '.[] | select(.context == "ci/arvore-testada" and .state == "success") | .description') || rodar "falha ao ler os status da PR ($H)"
+            if printf '%s\n' "$TESTADAS" | grep -qx "$ARVORE"; then
+              echo "rodar_testes=false" >> "$GITHUB_OUTPUT"
+              echo "Pula a suite: arvore $ARVORE e identica a testada no PR Check (commit da PR $H)." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+
+          rodar "arvore $ARVORE difere da testada na PR (a main andou depois do check)"
+
+  test:
+    needs: decidir
+    if: needs.decidir.outputs.rodar_testes == 'true'
+    uses: ./.github/workflows/ci.yml
