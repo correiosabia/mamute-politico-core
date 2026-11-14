@@ -95,6 +95,21 @@ def test_rotas_publicas_abrem_quando_publica_e_sem_destaques(db: Session) -> Non
     assert comparacao["disponivel"] is True and comparacao["destaques"] == []
 
 
+def test_publicada_diz_o_estado_sem_login_e_sem_404(db: Session) -> None:
+    cliente = _cliente(db, publico=True)
+    assert cliente.get("/api/public/eleicoes-2026/publicada").json() == {"publicada": False}
+    definir_estado(db, "eleicoes_2026", "publica", "admin@mamute.com")
+    assert cliente.get("/api/public/eleicoes-2026/publicada").json() == {"publicada": True}
+    definir_estado(db, "eleicoes_2026", "admin", "admin@mamute.com")
+    assert cliente.get("/api/public/eleicoes-2026/publicada").json() == {"publicada": False}
+
+
+def test_publicada_sem_tabela_e_falso() -> None:
+    cliente = _cliente(_session(com_tabela=False), publico=True)
+    resp = cliente.get("/api/public/eleicoes-2026/publicada")
+    assert resp.status_code == 200 and resp.json() == {"publicada": False}
+
+
 def test_admin_le_e_muda_o_estado(db: Session) -> None:
     cliente = _cliente(db, admin=True)
     assert cliente.get("/api/admin/pages/eleicoes_2026").json() == {"chave": "eleicoes_2026", "estado": "admin"}
