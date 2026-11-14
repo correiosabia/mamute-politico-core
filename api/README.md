@@ -203,6 +203,7 @@ esquema da Na Lupa: quem decide é o admin, sem recorte por plano.
 
 | Rota | Quem | O quê |
 |---|---|---|
+| `GET /api/public/eleicoes-2026/publicada` | qualquer um, sem login | `{publicada: bool}`, sempre 200; o menu do site só mostra a aba "Eleições 2026" com `true` (CS-169) |
 | `GET /api/public/eleicoes-2026/elected-profile` | qualquer um, sem login | igual à rota admin; 404 enquanto "só admin" |
 | `GET /api/public/eleicoes-2026/runoff-comparison` | qualquer um, sem login | igual à rota admin, sem `destaques`; 404 enquanto "só admin" |
 | `GET /api/admin/pages/eleicoes_2026` | admin | `{chave, estado}` |
