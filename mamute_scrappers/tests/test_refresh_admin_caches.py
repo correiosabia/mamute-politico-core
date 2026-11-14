@@ -175,6 +175,30 @@ def test_build_coverage_payload_new_shape() -> None:
     assert p["parlamentares"]["senadores"]["nossa_base"] == 1
     assert len(p["consolidado"]) == 6
 
+    # Registros oficiais (CS-170): 2 parlamentares + 4 proposições + 2 discursos
+    # + 3 votos (linhas, não sessões). authors_proposition e api_coverage não contam.
+    reg = p["registros_oficiais"]
+    assert reg["total"] == 11
+    assert {item["tabela"]: item["n"] for item in reg["por_tabela"]} == {
+        "parliamentarian": 2,
+        "proposition": 4,
+        "roll_call_votes": 3,
+        "speeches_transcripts": 2,
+    }
+
+
+def test_count_official_records_ignora_tabela_inexistente() -> None:
+    """Tabela que a migration ainda não criou some do detalhe — não vira zero."""
+    session = _coverage_session()
+    with session.get_bind().begin() as c:
+        c.exec_driver_sql("create table parliamentary_expense (id integer primary key)")
+    reg = rac.count_official_records(session)
+    por_tabela = {item["tabela"]: item["n"] for item in reg["por_tabela"]}
+    assert por_tabela["parliamentary_expense"] == 0  # existe, ainda que vazia
+    assert "parliamentary_amendment" not in por_tabela  # não existe
+    assert "authors_proposition" not in por_tabela  # ligação, fora da conta
+    assert reg["total"] == 11
+
 
 # --------------------------------------------------------------------------- #
 # Câmbio: upsert idempotente
