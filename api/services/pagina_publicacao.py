@@ -22,7 +22,8 @@ from sqlalchemy.orm import Session
 
 Estado = Literal["admin", "publica"]
 ESTADOS: tuple[str, ...] = ("admin", "publica")
-PAGINAS: tuple[str, ...] = ("eleicoes_2026",)
+# `home_numeros` (CS-170): os cards novos de números e destaques da home.
+PAGINAS: tuple[str, ...] = ("eleicoes_2026", "home_numeros")
 
 
 def _tabela_existe(db: Session) -> bool:

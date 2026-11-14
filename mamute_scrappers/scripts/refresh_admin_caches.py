@@ -9,7 +9,8 @@ Faz três coisas, cada uma isolada (uma falha não aborta as outras):
   1. api_coverage      — total ANUAL oficial de proposições da Câmara (todos os
      tipos, via API aberta). Guardado com sigla_type='TODOS'.
   2. coverage_snapshot — relatório de cobertura já computado (proposições,
-     discursos, votações, parlamentares) como um único JSON. A API só lê.
+     discursos, votações, parlamentares e o total de registros oficiais dos
+     cards da home — CS-170) como um único JSON. A API só lê.
   3. usd_brl_rate      — cotação USD→BRL do dia via API pública.
 
 Uso:
@@ -26,7 +27,7 @@ from datetime import date, datetime
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger("refresh_admin_caches")
@@ -45,6 +46,28 @@ CADEIRAS_CAMARA = 513
 CADEIRAS_SENADO = 81
 # Marca a linha de api_coverage que guarda o TOTAL anual (todos os tipos).
 TOTAL_SIGLA = "TODOS"
+
+# Tabelas que somam o "total de registros oficiais" do card da home (CS-170):
+# cada linha é um dado tirado de fonte oficial (Câmara, Senado, TSE, Portal da
+# Transparência, Transferegov). Ficam de fora tabelas de ligação (autorias,
+# proposição x discurso), cadastros auxiliares (tipos, situações, comissões),
+# dados derivados por nós (resumos, palavras-chave) e a apuração por município
+# ou local de votação, que repete o mesmo resultado em milhares de linhas.
+REGISTROS_OFICIAIS: tuple[tuple[str, str], ...] = (
+    ("parliamentarian", "Parlamentares"),
+    ("proposition", "Proposições"),
+    ("roll_call_votes", "Votos nominais"),
+    ("speeches_transcripts", "Discursos"),
+    ("parliamentary_expense", "Gastos da cota parlamentar"),
+    ("parliamentary_amendment", "Emendas parlamentares"),
+    ("amendment_action_plan", "Planos de ação das emendas Pix"),
+    ("plenary_attendance", "Presenças em plenário"),
+    ("committee_attendance", "Presenças em comissões"),
+    ("official_agenda_item", "Compromissos da agenda oficial"),
+    ("candidacy", "Candidaturas (TSE)"),
+    ("candidacy_result", "Resultados de candidaturas (TSE)"),
+    ("electoral_history", "Histórico eleitoral (TSE)"),
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -140,6 +163,30 @@ def _year_house_counts(session: Session, sql: str) -> dict[int, dict[str, int]]:
         key = "senado" if r["casa"] == "senado" else "camara"
         bucket[key] += int(r["n"])
     return by_year
+
+
+def count_official_records(session: Session) -> dict[str, Any]:
+    """Total de registros oficiais da base, com o detalhe por tabela.
+
+    Tabela que ainda não existe (deploy novo, migration pendente) fica fora do
+    detalhe em vez de entrar como zero — zero passaria por "coletado e vazio".
+    """
+    inspector = inspect(session.get_bind())
+    por_tabela = []
+    for tabela, rotulo in REGISTROS_OFICIAIS:
+        if not inspector.has_table(tabela):
+            continue
+        por_tabela.append(
+            {"tabela": tabela, "rotulo": rotulo, "n": _scalar(session, f"select count(*) from {tabela}")}
+        )
+    return {
+        "total": sum(item["n"] for item in por_tabela),
+        "por_tabela": por_tabela,
+        "nota": "Soma do que veio de fonte oficial (Câmara, Senado, TSE, Portal da "
+        "Transparência, Transferegov). Fora da conta: tabelas de ligação, cadastros "
+        "auxiliares, dados gerados pelo Mamute e a apuração por município ou local "
+        "de votação. É o número do card de dados oficiais da home.",
+    }
 
 
 def _to_lists(by_year: dict[int, dict[str, int]]) -> tuple[list[dict], list[dict]]:
@@ -369,6 +416,7 @@ def build_coverage_payload(session: Session) -> dict[str, Any]:
             "nota": "A base tem mais parlamentares que as cadeiras atuais porque "
             "inclui suplentes e parlamentares de legislaturas anteriores.",
         },
+        "registros_oficiais": count_official_records(session),
         "consolidado": consolidado,
     }
 

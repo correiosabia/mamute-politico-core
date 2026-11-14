@@ -28,6 +28,7 @@ try:
         events,
         expenses,
         ghost_webhooks,
+        home_publica,
         projects,
         parliamentarians,
         propositions,
@@ -57,6 +58,7 @@ except ImportError:
         events,
         expenses,
         ghost_webhooks,
+        home_publica,
         projects,
         parliamentarians,
         propositions,
@@ -147,6 +149,8 @@ def create_app() -> FastAPI:
     api_router.include_router(eleicoes_publicas.admin_dados_router)
     # CS-164: resultado por município e por local de votação (zoom dos mapas).
     api_router.include_router(eleicoes_publicas.admin_mapa_router)
+    # CS-170: números e destaques da home (sem login; publicação em Admin > Cobertura).
+    api_router.include_router(home_publica.public_router)
     api_router.include_router(events.router)
     api_router.include_router(email_settings.admin_router)
     # Imagens do e-mail: o cliente de e-mail busca sem login.
