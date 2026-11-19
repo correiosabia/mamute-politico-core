@@ -23,6 +23,14 @@ SNAPSHOT = {
         "senadores": {"nossa_base": 88, "cadeiras": 81, "status": "completo"},
     },
     "registros_oficiais": {"total": 523_456, "por_tabela": [], "nota": ""},
+    "destaques_home": {
+        "itens": [
+            {"chave": "votacoes_nominais", "rotulo": "Votações", "n": 4_210},
+            {"chave": "discursos", "rotulo": "Discursos", "n": 0},
+            {"chave": "candidaturas_2026", "rotulo": "Candidaturas", "n": None},
+        ],
+        "nota": "",
+    },
 }
 
 
@@ -63,15 +71,18 @@ def test_numeros_saem_do_snapshot() -> None:
     assert home_numeros(_session()) == {
         "parlamentares": 648,  # deputados + senadores, com suplentes
         "registros_oficiais": 523_456,
+        # CS-171: zero e não levantado viram None — a home tira do sorteio.
+        "destaques": {"votacoes_nominais": 4_210, "discursos": None, "candidaturas_2026": None},
         "atualizado_em": "2026-11-10T04:00:00",
     }
 
 
 def test_snapshot_antigo_sem_registros_oficiais_volta_none_e_nao_zero() -> None:
-    antigo = {k: v for k, v in SNAPSHOT.items() if k != "registros_oficiais"}
+    antigo = {k: v for k, v in SNAPSHOT.items() if k not in ("registros_oficiais", "destaques_home")}
     numeros = home_numeros(_session(snapshot=antigo))
     assert numeros["parlamentares"] == 648
     assert numeros["registros_oficiais"] is None
+    assert numeros["destaques"] == {}
 
 
 def test_sem_snapshot_ou_sem_tabela_volta_none() -> None:
@@ -87,6 +98,7 @@ def test_rota_publica_responde_sem_login_e_nasce_nao_publicada() -> None:
     corpo = resposta.json()
     assert corpo["parlamentares"] == 648
     assert corpo["registros_oficiais"] == 523_456
+    assert corpo["destaques"]["votacoes_nominais"] == 4_210
     assert corpo["publicada"] is False
     assert corpo["eleicoes_2026_publica"] is False
 

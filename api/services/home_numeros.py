@@ -2,10 +2,12 @@
 
 O cálculo pesado já roda na rotina diária (refresh_admin_caches, 04h) e fica em
 coverage_snapshot — o mesmo levantamento da tela Admin > Cobertura. Aqui só
-extraímos os dois números da home:
+extraímos os números da home:
 
 - `parlamentares`: deputados/as + senadores/as da base, contando suplentes;
-- `registros_oficiais`: total de registros tirados de fonte oficial.
+- `registros_oficiais`: total de registros tirados de fonte oficial;
+- `destaques` (CS-171): `{chave: total}` dos destaques que a home sorteia a
+  cada visita (votações, discursos, candidaturas 2026, declarações de bens...).
 
 Número que o snapshot ainda não tem (rotina não rodou depois do deploy) volta
 `None`, nunca zero: a home esconde o número em vez de mostrar "0".
@@ -38,8 +40,15 @@ def home_numeros(db: Session) -> dict[str, Any]:
 
     registros = _inteiro_positivo((snapshot.get("registros_oficiais") or {}).get("total"))
 
+    destaques = {
+        item["chave"]: _inteiro_positivo(item.get("n"))
+        for item in (snapshot.get("destaques_home") or {}).get("itens") or []
+        if isinstance(item, dict) and isinstance(item.get("chave"), str)
+    }
+
     return {
         "parlamentares": total_parlamentares,
         "registros_oficiais": registros,
+        "destaques": destaques,
         "atualizado_em": snapshot.get("computed_at"),
     }
