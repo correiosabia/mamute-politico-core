@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 TAG_MAMUTE = "mamute"
 TAG_RELATORIO = "mamute-relatorio"
 TAG_RESULTADO_ELEICAO = "mamute-resultado-eleicao"
+TAG_NA_LUPA = "mamute-na-lupa"  # aviso de parlamentar citado num caso (CS-137)
 
 
 def _format_from_header(from_name: str, sender: str) -> str:
