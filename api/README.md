@@ -212,6 +212,40 @@ O estado mora em `pagina_publicacao` (migration `cs162a1b2c3d4`); sem linha ou s
 Não é feature flag de propósito: `useFeatureFlag` no app só consulta com token, então visitante sem
 login veria sempre "desligado".
 
+## Números da home (CS-170)
+
+Os cards da home leem do banco, não do código. A fonte é o mesmo snapshot da tela Admin >
+Cobertura (`coverage_snapshot`, recalculado às 04h por `refresh_admin_caches`), então a rota
+pública só lê uma linha e ainda guarda o resultado por 10 min.
+
+| Rota | Quem | O quê |
+|---|---|---|
+| `GET /api/public/home` | qualquer um, sem login | `{parlamentares, registros_oficiais, destaques, atualizado_em, publicada, eleicoes_2026_publica}` |
+| `GET`/`PUT /api/admin/pages/home_numeros` | admin | estado dos cards novos (`admin` \| `publica`), o mesmo esquema da página Eleições 2026 |
+
+| Campo | Regra |
+|---|---|
+| `parlamentares` | deputados/as + senadores/as da base, contando suplentes e legislaturas anteriores (seção Parlamentares da Cobertura) |
+| `registros_oficiais` | soma das tabelas de `REGISTROS_OFICIAIS` em `refresh_admin_caches` (detalhe por tabela em `registros_oficiais.por_tabela` no snapshot) |
+| `destaques` (CS-171) | `{chave: total}` dos destaques que a home sorteia a cada visita, de `destaques_home` no snapshot (lista e regra de cada total em `DESTAQUES_HOME` / `count_home_highlights` no `refresh_admin_caches`). Zero ou tabela ausente → `null`; snapshot antigo → `{}` |
+| `publicada` | `false` = visitante continua vendo os cards antigos; admin vê a prévia |
+| `eleicoes_2026_publica` | o card que leva a `/eleicoes-2026` só aparece com a página pública |
+
+Número que o snapshot ainda não tem (a rotina não rodou desde o deploy) volta `null`, nunca `0`.
+Depois do deploy, rodar `python -m mamute_scrappers.scripts.refresh_admin_caches` no container dos
+scrappers para preencher `registros_oficiais` e `destaques` sem esperar as 04h.
+
+Totais dos destaques (CS-171), conferidos na tabela "Destaques sorteados na home" da Cobertura:
+
+| Chave | Conta |
+|---|---|
+| `votacoes_nominais`, `discursos`, `proposicoes` | os mesmos KPIs do topo da Cobertura (votações = sessões, `distinct link`) |
+| `gastos_cota` | linhas de `parliamentary_expense` |
+| `candidaturas_2026` | `candidacy` com `election_year = 2026` |
+| `candidatos_2026_com_historico` | candidaturas de 2026 com ao menos uma linha anterior a 2026 em `electoral_history` |
+| `declaracoes_de_bens` | linhas de `electoral_history` com `assets_status = 'declarado'` (sem a coluna: `declared_assets` preenchido) |
+| `parlamentares_evolucao_patrimonial` | parlamentares com bens declarados em 2+ eleições |
+
 ## Votos depois das 17h (CS-163)
 
 Aba "Votos depois das 17h" da página Eleições 2026: no 2º turno de 2026 a votação foi prorrogada até

@@ -175,6 +175,108 @@ def test_build_coverage_payload_new_shape() -> None:
     assert p["parlamentares"]["senadores"]["nossa_base"] == 1
     assert len(p["consolidado"]) == 6
 
+    # Registros oficiais (CS-170): 2 parlamentares + 4 proposições + 2 discursos
+    # + 3 votos (linhas, não sessões). authors_proposition e api_coverage não contam.
+    reg = p["registros_oficiais"]
+    assert reg["total"] == 11
+    assert {item["tabela"]: item["n"] for item in reg["por_tabela"]} == {
+        "parliamentarian": 2,
+        "proposition": 4,
+        "roll_call_votes": 3,
+        "speeches_transcripts": 2,
+    }
+
+
+def _destaques(p: dict) -> dict:
+    return {item["chave"]: item["n"] for item in p["itens"]}
+
+
+def test_destaques_home_sem_tabelas_eleitorais_ficam_none() -> None:
+    """CS-171: sem candidacy/electoral_history o destaque não é levantado — None, não zero."""
+    p = rac.build_coverage_payload(_coverage_session())
+    destaques = _destaques(p["destaques_home"])
+    assert list(destaques) == [chave for chave, _ in rac.DESTAQUES_HOME]
+    assert destaques["votacoes_nominais"] == 2  # o mesmo número do KPI da Cobertura
+    assert destaques["discursos"] == 2
+    assert destaques["proposicoes"] == 4
+    for chave in (
+        "gastos_cota",
+        "candidaturas_2026",
+        "candidatos_2026_com_historico",
+        "declaracoes_de_bens",
+        "parlamentares_evolucao_patrimonial",
+    ):
+        assert destaques[chave] is None, chave
+
+
+def test_destaques_home_contam_candidaturas_e_patrimonio() -> None:
+    session = _coverage_session()
+    with session.get_bind().begin() as c:
+        c.exec_driver_sql("create table parliamentary_expense (id integer primary key)")
+        c.exec_driver_sql("insert into parliamentary_expense (id) values (1),(2),(3)")
+        c.exec_driver_sql("create table candidacy (id integer primary key, election_year integer)")
+        # 10, 11 e 12 são de 2026; 20 é de 2022
+        c.exec_driver_sql(
+            "insert into candidacy (id, election_year) values (10,2026),(11,2026),(12,2026),(20,2022)"
+        )
+        c.exec_driver_sql(
+            "create table electoral_history (id integer primary key, election_year integer, "
+            "parliamentarian_id integer, candidacy_id integer, declared_assets numeric, assets_status text)"
+        )
+        c.exec_driver_sql(
+            "insert into electoral_history "
+            "(election_year, parliamentarian_id, candidacy_id, declared_assets, assets_status) values "
+            # parlamentar 1: declarou em 2018, 2022 e 2026 → evolução patrimonial
+            "(2018, 1, 10, 100, 'declarado'),"
+            "(2022, 1, 10, 200, 'declarado'),"
+            "(2026, 1, 10, 300, 'declarado'),"
+            # parlamentar 2: só uma eleição com bens (2022 sem bens não conta)
+            "(2018, 2, null, 50, 'declarado'),"
+            "(2022, 2, null, null, 'sem_bens'),"
+            # candidatura 11: só a linha de 2026, sem eleição anterior
+            "(2026, null, 11, null, 'nao_divulgado'),"
+            # candidatura 12: disputou 2014
+            "(2014, null, 12, null, null)"
+        )
+    destaques = _destaques(rac.build_coverage_payload(session)["destaques_home"])
+    assert destaques["gastos_cota"] == 3
+    assert destaques["candidaturas_2026"] == 3
+    assert destaques["candidatos_2026_com_historico"] == 2  # 10 e 12
+    assert destaques["declaracoes_de_bens"] == 4
+    assert destaques["parlamentares_evolucao_patrimonial"] == 1
+
+
+def test_destaques_home_sem_assets_status_usam_valor_declarado() -> None:
+    """Migration do CS-95 pendente: conta quem tem valor declarado."""
+    session = _coverage_session()
+    with session.get_bind().begin() as c:
+        c.exec_driver_sql(
+            "create table electoral_history (id integer primary key, election_year integer, "
+            "parliamentarian_id integer, candidacy_id integer, declared_assets numeric)"
+        )
+        c.exec_driver_sql(
+            "insert into electoral_history (election_year, parliamentarian_id, declared_assets) "
+            "values (2018, 1, 10), (2022, 1, null)"
+        )
+    destaques = _destaques(rac.count_home_highlights(session, {}))
+    assert destaques["declaracoes_de_bens"] == 1
+    assert destaques["parlamentares_evolucao_patrimonial"] == 0
+    assert destaques["candidatos_2026_com_historico"] is None  # sem candidacy
+    assert destaques["votacoes_nominais"] is None  # sem KPI
+
+
+def test_count_official_records_ignora_tabela_inexistente() -> None:
+    """Tabela que a migration ainda não criou some do detalhe — não vira zero."""
+    session = _coverage_session()
+    with session.get_bind().begin() as c:
+        c.exec_driver_sql("create table parliamentary_expense (id integer primary key)")
+    reg = rac.count_official_records(session)
+    por_tabela = {item["tabela"]: item["n"] for item in reg["por_tabela"]}
+    assert por_tabela["parliamentary_expense"] == 0  # existe, ainda que vazia
+    assert "parliamentary_amendment" not in por_tabela  # não existe
+    assert "authors_proposition" not in por_tabela  # ligação, fora da conta
+    assert reg["total"] == 11
+
 
 # --------------------------------------------------------------------------- #
 # Câmbio: upsert idempotente

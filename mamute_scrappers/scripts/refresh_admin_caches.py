@@ -9,7 +9,9 @@ Faz três coisas, cada uma isolada (uma falha não aborta as outras):
   1. api_coverage      — total ANUAL oficial de proposições da Câmara (todos os
      tipos, via API aberta). Guardado com sigla_type='TODOS'.
   2. coverage_snapshot — relatório de cobertura já computado (proposições,
-     discursos, votações, parlamentares) como um único JSON. A API só lê.
+     discursos, votações, parlamentares, o total de registros oficiais dos
+     cards da home — CS-170 — e os destaques que ela sorteia — CS-171) como um
+     único JSON. A API só lê.
   3. usd_brl_rate      — cotação USD→BRL do dia via API pública.
 
 Uso:
@@ -26,7 +28,7 @@ from datetime import date, datetime
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger("refresh_admin_caches")
@@ -45,6 +47,28 @@ CADEIRAS_CAMARA = 513
 CADEIRAS_SENADO = 81
 # Marca a linha de api_coverage que guarda o TOTAL anual (todos os tipos).
 TOTAL_SIGLA = "TODOS"
+
+# Tabelas que somam o "total de registros oficiais" do card da home (CS-170):
+# cada linha é um dado tirado de fonte oficial (Câmara, Senado, TSE, Portal da
+# Transparência, Transferegov). Ficam de fora tabelas de ligação (autorias,
+# proposição x discurso), cadastros auxiliares (tipos, situações, comissões),
+# dados derivados por nós (resumos, palavras-chave) e a apuração por município
+# ou local de votação, que repete o mesmo resultado em milhares de linhas.
+REGISTROS_OFICIAIS: tuple[tuple[str, str], ...] = (
+    ("parliamentarian", "Parlamentares"),
+    ("proposition", "Proposições"),
+    ("roll_call_votes", "Votos nominais"),
+    ("speeches_transcripts", "Discursos"),
+    ("parliamentary_expense", "Gastos da cota parlamentar"),
+    ("parliamentary_amendment", "Emendas parlamentares"),
+    ("amendment_action_plan", "Planos de ação das emendas Pix"),
+    ("plenary_attendance", "Presenças em plenário"),
+    ("committee_attendance", "Presenças em comissões"),
+    ("official_agenda_item", "Compromissos da agenda oficial"),
+    ("candidacy", "Candidaturas (TSE)"),
+    ("candidacy_result", "Resultados de candidaturas (TSE)"),
+    ("electoral_history", "Histórico eleitoral (TSE)"),
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -140,6 +164,120 @@ def _year_house_counts(session: Session, sql: str) -> dict[int, dict[str, int]]:
         key = "senado" if r["casa"] == "senado" else "camara"
         bucket[key] += int(r["n"])
     return by_year
+
+
+def count_official_records(session: Session) -> dict[str, Any]:
+    """Total de registros oficiais da base, com o detalhe por tabela.
+
+    Tabela que ainda não existe (deploy novo, migration pendente) fica fora do
+    detalhe em vez de entrar como zero — zero passaria por "coletado e vazio".
+    """
+    inspector = inspect(session.get_bind())
+    por_tabela = []
+    for tabela, rotulo in REGISTROS_OFICIAIS:
+        if not inspector.has_table(tabela):
+            continue
+        por_tabela.append(
+            {"tabela": tabela, "rotulo": rotulo, "n": _scalar(session, f"select count(*) from {tabela}")}
+        )
+    return {
+        "total": sum(item["n"] for item in por_tabela),
+        "por_tabela": por_tabela,
+        "nota": "Soma do que veio de fonte oficial (Câmara, Senado, TSE, Portal da "
+        "Transparência, Transferegov). Fora da conta: tabelas de ligação, cadastros "
+        "auxiliares, dados gerados pelo Mamute e a apuração por município ou local "
+        "de votação. É o número do card de dados oficiais da home.",
+    }
+
+
+# Destaques que a home sorteia a cada visita (CS-171). A ordem é a da tabela
+# em Admin > Cobertura; quais entram na home e com que texto é decisão da UI
+# (`DESTAQUES_NUMERICOS` em ui/src/lib/destaquesHome.ts, no app).
+ANO_ELEICAO_HOME = 2026
+DESTAQUES_HOME: tuple[tuple[str, str], ...] = (
+    ("votacoes_nominais", "Votações nominais analisadas (sessões)"),
+    ("discursos", "Discursos transcritos"),
+    ("proposicoes", "Proposições"),
+    ("gastos_cota", "Gastos da cota parlamentar"),
+    ("candidaturas_2026", "Candidaturas de 2026"),
+    ("candidatos_2026_com_historico", "Candidatos/as de 2026 com eleições anteriores"),
+    ("declaracoes_de_bens", "Declarações de bens ao TSE"),
+    ("parlamentares_evolucao_patrimonial", "Parlamentares com bens declarados em 2+ eleições"),
+)
+
+
+def count_home_highlights(session: Session, kpis: dict[str, int]) -> dict[str, Any]:
+    """Totais dos destaques da home, com o mesmo número que a Cobertura mostra.
+
+    Tabela ou coluna que ainda não existe deixa o destaque com `n = None`
+    (fica de fora da home) em vez de zero.
+    """
+    inspector = inspect(session.get_bind())
+
+    def tem(tabela: str) -> bool:
+        return inspector.has_table(tabela)
+
+    def contar(sql: str, **params: Any) -> int:
+        return int(session.execute(text(sql), params).scalar() or 0)
+
+    tem_historico = tem("electoral_history")
+    # CS-95: `assets_status` separa "declarou bens" de "não tinha" e de "o TSE
+    # não divulgou". Sem a coluna (migration pendente), vale o total preenchido.
+    if tem_historico and any(
+        col["name"] == "assets_status" for col in inspector.get_columns("electoral_history")
+    ):
+        declarou = "assets_status = 'declarado'"
+    else:
+        declarou = "declared_assets is not null"
+
+    totais: dict[str, int | None] = {
+        "votacoes_nominais": kpis.get("votacoes_nominais"),
+        "discursos": kpis.get("discursos"),
+        "proposicoes": kpis.get("proposicoes"),
+        "gastos_cota": contar("select count(*) from parliamentary_expense")
+        if tem("parliamentary_expense")
+        else None,
+        "candidaturas_2026": contar(
+            "select count(*) from candidacy where election_year = :ano", ano=ANO_ELEICAO_HOME
+        )
+        if tem("candidacy")
+        else None,
+        "candidatos_2026_com_historico": contar(
+            """
+            select count(distinct eh.candidacy_id)
+            from electoral_history eh
+            join candidacy c on c.id = eh.candidacy_id
+            where c.election_year = :ano and eh.election_year < :ano
+            """,
+            ano=ANO_ELEICAO_HOME,
+        )
+        if tem_historico and tem("candidacy")
+        else None,
+        "declaracoes_de_bens": contar(f"select count(*) from electoral_history where {declarou}")
+        if tem_historico
+        else None,
+        "parlamentares_evolucao_patrimonial": contar(
+            f"""
+            select count(*) from (
+                select parliamentarian_id
+                from electoral_history
+                where parliamentarian_id is not null and {declarou}
+                group by parliamentarian_id
+                having count(distinct election_year) >= 2
+            ) x
+            """
+        )
+        if tem_historico
+        else None,
+    }
+    return {
+        "itens": [
+            {"chave": chave, "rotulo": rotulo, "n": totais.get(chave)}
+            for chave, rotulo in DESTAQUES_HOME
+        ],
+        "nota": "A home sorteia a cada visita quais destes números mostrar nos espaços "
+        "livres dos cards. Número zerado ou ainda não levantado não entra no sorteio.",
+    }
 
 
 def _to_lists(by_year: dict[int, dict[str, int]]) -> tuple[list[dict], list[dict]]:
@@ -369,6 +507,8 @@ def build_coverage_payload(session: Session) -> dict[str, Any]:
             "nota": "A base tem mais parlamentares que as cadeiras atuais porque "
             "inclui suplentes e parlamentares de legislaturas anteriores.",
         },
+        "registros_oficiais": count_official_records(session),
+        "destaques_home": count_home_highlights(session, kpis),
         "consolidado": consolidado,
     }
 
