@@ -1,7 +1,7 @@
 """Página Eleições 2026: versão pública e controle de publicação (CS-162).
 
 * `/public/eleicoes-2026/*`: sem login. Responde 404 enquanto a página está
-  "só admin". A comparação entre turnos vai sem os destaques prontos (são
+  "só admin" (menos `/publicada`, que só diz o estado para o menu — CS-169). A comparação entre turnos vai sem os destaques prontos (são
   ferramenta interna para o e-mail).
 * `/admin/pages/{chave}`: o admin lê e muda o estado (`admin` | `publica`).
   Gate igual ao resto do painel (404 para não admin).
@@ -81,6 +81,14 @@ def _em_cache(nome: str, gerar: Callable[[], dict[str, Any]]) -> dict[str, Any]:
 def _exige_publica(db: Session) -> None:
     if estado_da_pagina(db, PAGINA) != "publica":
         raise HTTPException(status_code=404, detail="Página não encontrada.")
+
+
+@public_router.get("/publicada")
+def esta_publicada(db: Session = Depends(get_db)) -> dict[str, bool]:
+    """Só o estado, para o menu do site decidir se mostra a aba (CS-169).
+    Sempre 200: o header aparece em toda página e não deve gerar 404 no log.
+    Fora do cache, como o resto do estado: despublicar some do menu na hora."""
+    return {"publicada": estado_da_pagina(db, PAGINA) == "publica"}
 
 
 @public_router.get("/elected-profile")
