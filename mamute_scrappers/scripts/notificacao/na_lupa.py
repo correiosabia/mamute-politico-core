@@ -13,7 +13,9 @@ da janela (`JANELA_DIAS`, padrão 7 dias). Assim:
 - publicar um caso avisa quem segue as pessoas dele;
 - incluir alguém num caso já publicado avisa quem segue essa pessoa;
 - caso antigo não dispara sozinho no dia em que a flag liga: para avisar
-  sobre ele, rodar à mão com `--desde AAAA-MM-DD`.
+  sobre ele, rodar à mão com `--desde AAAA-MM-DD`;
+- piso `INICIO_AVISOS`: quem já estava num caso antes do aviso entrar no ar
+  nunca dispara sozinho, mesmo dentro da janela.
 
 Uma vez só: `na_lupa_notice` tem unique (projeto, caso, parlamentar).
 Republicar, mudar o texto ou o nível da pessoa não reenvia. O e-mail sai
@@ -78,6 +80,11 @@ logger = logging.getLogger(__name__)
 
 FLAG_KEY = "email_na_lupa"
 JANELA_DIAS = 7
+# Piso dos avisos automáticos (pedido do Luiz em 22/11/2026): quem já estava
+# num caso quando o aviso entrou no ar (ex.: as 61 pessoas do Banco Master,
+# incluídas em 05/10) nunca gera e-mail sozinho. Só avisa pessoa incluída num
+# caso depois daqui, ou caso publicado depois daqui. `--desde` à mão ignora o piso.
+INICIO_AVISOS = datetime(2026, 11, 22, 16, 0, tzinfo=timezone.utc)  # 13h de Brasília
 MAX_TENTATIVAS = 3
 MAX_CONTEXTO = 280
 
@@ -242,7 +249,7 @@ def montar_avisos(
             f"""
             SELECT p.id AS projeto_id, p.email, p.nome, p.tier_id,
                    c.id AS collection_id, c.slug, c.title, c.subtitle,
-                   c.tier_labels, c.settings, c.published_at, c.updated_at AS collection_updated_at,
+                   c.tier_labels, c.settings, c.published_at,
                    mb.member_id, mb.display_name, mb.role_label, mb.tier, mb.context,
                    mb.member_created_at, mb.parliamentarian_id, mb.position
               FROM (
@@ -272,7 +279,9 @@ def montar_avisos(
         chave = (int(r["projeto_id"]), int(r["collection_id"]), int(r["parliamentarian_id"]))
         if chave in vistos:  # CPF repetido ou duas linhas da mesma pessoa
             continue
-        publicado_em = _dt(r["published_at"]) or _dt(r["collection_updated_at"])
+        # Sem fallback para updated_at: ele muda a cada edição do caso e
+        # reenviaria para todo mundo. Caso publicado sempre tem published_at.
+        publicado_em = _dt(r["published_at"])
         incluido_em = _dt(r["member_created_at"])
         momento = max(d for d in (publicado_em, incluido_em) if d is not None) if (publicado_em or incluido_em) else None
         if momento is None or momento < desde:
@@ -472,6 +481,7 @@ def enviar(
     projeto_id: Optional[int] = None,
     caso: Optional[str] = None,
     desde: Optional[datetime] = None,
+    inicio: Optional[datetime] = None,
     agora: Optional[datetime] = None,
     ignorar_flag: bool = False,
     admins: Optional[frozenset[str]] = None,
@@ -488,7 +498,8 @@ def enviar(
         return stats
 
     agora = agora or datetime.now(timezone.utc)
-    desde = desde or agora - timedelta(days=JANELA_DIAS)
+    if desde is None:
+        desde = max(agora - timedelta(days=JANELA_DIAS), inicio or INICIO_AVISOS)
 
     # List-Unsubscribe de cada destinatário; o `send` injetado nos testes não vê.
     one_click_por_email: Dict[str, str] = {}

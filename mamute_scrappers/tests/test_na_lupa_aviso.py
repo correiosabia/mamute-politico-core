@@ -116,6 +116,8 @@ def _status(s: Session) -> dict:
 
 
 def _envia(s: Session, mailer: FakeMailer, **kw):
+    # Os cenários são anteriores ao início real dos avisos; o piso é testado à parte.
+    kw.setdefault("inicio", MES_PASSADO - timedelta(days=60))
     return enviar(s, send=mailer, agora=AGORA, admins=frozenset({ADMIN}), **kw)
 
 
@@ -202,6 +204,47 @@ def test_caso_antigo_so_dispara_com_desde() -> None:
 
     assert _envia(s, mailer).enviados == 0  # ligar a flag não reenvia casos velhos
     assert _envia(s, mailer, desde=MES_PASSADO - timedelta(days=1)).enviados == 1
+
+
+def test_quem_ja_estava_no_caso_antes_do_inicio_dos_avisos_nao_recebe() -> None:
+    """Pedido do Luiz (22/11): quem já estava no caso (ex.: Flávio Bolsonaro no
+    Master) não gera e-mail ao ligar a flag; só pessoa nova num caso ou caso novo."""
+    s = _cenario()  # caso publicado ontem, pessoas incluídas há 3 dias
+    mailer = FakeMailer()
+    inicio = AGORA - timedelta(hours=2)
+
+    assert _envia(s, mailer, inicio=inicio).enviados == 0
+    assert mailer.enviados == []
+
+    _pessoa(s, 12, 1, "Ciclano", parl=3, tier=3, criado_em=AGORA - timedelta(hours=1))
+    _exec(s, "INSERT INTO projetos_parliamentarian (projeto_id, parliamentarian_id) VALUES (100, 3)")
+    assert _envia(s, mailer, inicio=inicio).enviados == 1
+    _, subject, body = mailer.enviados[0]
+    assert subject == "Ciclano aparece no caso “Caso master”, do Na Lupa"
+    assert "Fulano" not in body and "Beltrano" not in body
+
+
+def test_caso_novo_depois_do_inicio_avisa_todas_as_pessoas_dele() -> None:
+    s = _sessao()
+    _caso(s, 2, "novo", publicado_em=AGORA - timedelta(minutes=30))
+    _pessoa(s, 20, 2, "Fulano", parl=1, criado_em=AGORA - timedelta(days=1))  # rascunho montado antes
+    _projeto(s, 100, "ana@x.com", segue=(1,))
+    _flag(s, "all", 1)
+    mailer = FakeMailer()
+    assert _envia(s, mailer, inicio=AGORA - timedelta(hours=2)).enviados == 1
+
+
+def test_editar_caso_sem_data_de_publicacao_nao_dispara() -> None:
+    """Sem published_at, o updated_at (que muda a cada edição) não pode virar
+    o momento da publicação: editar o caso reenviaria para todo mundo."""
+    s = _sessao()
+    _caso(s, 1, "sem-data", publicado_em=None)
+    _exec(s, "UPDATE collection SET updated_at = :u WHERE id = 1", u=(AGORA - timedelta(minutes=5)).isoformat())
+    _pessoa(s, 10, 1, "Fulano", parl=1, criado_em=MES_PASSADO)
+    _projeto(s, 100, "ana@x.com", segue=(1,))
+    _flag(s, "all", 1)
+    mailer = FakeMailer()
+    assert _envia(s, mailer).enviados == 0
 
 
 def test_incluir_alguem_num_caso_publicado_avisa_so_sobre_a_pessoa_nova() -> None:
