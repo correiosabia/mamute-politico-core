@@ -212,6 +212,28 @@ O estado mora em `pagina_publicacao` (migration `cs162a1b2c3d4`); sem linha ou s
 Não é feature flag de propósito: `useFeatureFlag` no app só consulta com token, então visitante sem
 login veria sempre "desligado".
 
+## Números da home (CS-170)
+
+Os cards da home leem do banco, não do código. A fonte é o mesmo snapshot da tela Admin >
+Cobertura (`coverage_snapshot`, recalculado às 04h por `refresh_admin_caches`), então a rota
+pública só lê uma linha e ainda guarda o resultado por 10 min.
+
+| Rota | Quem | O quê |
+|---|---|---|
+| `GET /api/public/home` | qualquer um, sem login | `{parlamentares, registros_oficiais, atualizado_em, publicada, eleicoes_2026_publica}` |
+| `GET`/`PUT /api/admin/pages/home_numeros` | admin | estado dos cards novos (`admin` \| `publica`), o mesmo esquema da página Eleições 2026 |
+
+| Campo | Regra |
+|---|---|
+| `parlamentares` | deputados/as + senadores/as da base, contando suplentes e legislaturas anteriores (seção Parlamentares da Cobertura) |
+| `registros_oficiais` | soma das tabelas de `REGISTROS_OFICIAIS` em `refresh_admin_caches` (detalhe por tabela em `registros_oficiais.por_tabela` no snapshot) |
+| `publicada` | `false` = visitante continua vendo os cards antigos; admin vê a prévia |
+| `eleicoes_2026_publica` | o card que leva a `/eleicoes-2026` só aparece com a página pública |
+
+Número que o snapshot ainda não tem (a rotina não rodou desde o deploy) volta `null`, nunca `0`.
+Depois do deploy, rodar `python -m mamute_scrappers.scripts.refresh_admin_caches` no container dos
+scrappers para preencher `registros_oficiais` sem esperar as 04h.
+
 ## Votos depois das 17h (CS-163)
 
 Aba "Votos depois das 17h" da página Eleições 2026: no 2º turno de 2026 a votação foi prorrogada até
