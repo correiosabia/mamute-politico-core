@@ -762,11 +762,24 @@ def _email_history(db: Session, limit: int) -> Optional[list[dict[str, Any]]]:
 _ELEICAO_TURNO = re.compile(r"^eleicao_(\d{4})_t(\d)_(\w+)$")
 
 
+_NA_LUPA = "na_lupa_"  # aviso de parlamentar citado num caso (CS-137): na_lupa_<slug>
+
+
+def _tipo_envio(periodicidade: str) -> str:
+    if periodicidade.startswith("eleicao_"):
+        return "eleicao"
+    if periodicidade.startswith(_NA_LUPA):
+        return "na_lupa"
+    return "relatorio"
+
+
 def _label_envio(periodicidade: str) -> str:
     m = _ELEICAO_TURNO.match(periodicidade)
     if m:
         ciclo, turno, disparo = m.groups()
         return f"Resultado {ciclo}, {turno}º turno ({disparo})"
+    if periodicidade.startswith(_NA_LUPA):
+        return f"Na Lupa: {periodicidade[len(_NA_LUPA):]}"
     return _EMAIL_PERIODICIDADE_LABELS.get(periodicidade, periodicidade)
 
 
@@ -812,15 +825,17 @@ def _email_aberturas(db: Session) -> Optional[dict[str, Any]]:
 
     # Relatório: um envio por periodicidade e dia (o cron dispara uma vez).
     # Resultado da eleição: um envio por disparo, que pode se espalhar em dias.
+    # Na Lupa (CS-137): um envio por caso, que sai aos poucos (publicação e
+    # inclusões); fica fora da média do relatório.
     grupos: dict[tuple[str, str, str], dict[str, Any]] = {}
     for r in rows:
         criado = r["created_at"]
         criado_iso = criado if isinstance(criado, str) else criado.isoformat()
-        eleicao = r["periodicidade"].startswith("eleicao_")
+        tipo = _tipo_envio(r["periodicidade"])
         chave = (
-            "eleicao" if eleicao else "relatorio",
+            tipo,
             r["periodicidade"],
-            "" if eleicao else criado_iso[:10],
+            criado_iso[:10] if tipo == "relatorio" else "",
         )
         g = grupos.setdefault(
             chave,
@@ -836,7 +851,7 @@ def _email_aberturas(db: Session) -> Optional[dict[str, Any]]:
         g["enviados"] += 1
         g["abertos"] += int(r["aberto"])
 
-    por_tipo: dict[str, list[dict[str, Any]]] = {"relatorio": [], "eleicao": []}
+    por_tipo: dict[str, list[dict[str, Any]]] = {"relatorio": [], "eleicao": [], "na_lupa": []}
     for (tipo, _, _), g in grupos.items():
         g["pct"] = round(100 * g["abertos"] / g["enviados"], 1)
         por_tipo[tipo].append(g)
@@ -845,6 +860,7 @@ def _email_aberturas(db: Session) -> Optional[dict[str, Any]]:
     return {
         "relatorio": _resumo_aberturas(por_tipo["relatorio"]),
         "eleicao": _resumo_aberturas(por_tipo["eleicao"]),
+        "na_lupa": _resumo_aberturas(por_tipo["na_lupa"]),
     }
 
 

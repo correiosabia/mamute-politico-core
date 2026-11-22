@@ -121,6 +121,14 @@ PYTHONPATH=/app
 # (CS-130: saem os não eleitos, uma vez só; ver scripts/selecao_por_turno.py).
 */15 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh resultado-eleicao -- /bin/sh -c "/usr/local/bin/python -m mamute_scrappers.tse_crawler.resultados && /usr/local/bin/python -m mamute_scrappers.scripts.notificacao.resultado_eleicao && /usr/local/bin/python -m mamute_scrappers.scripts.selecao_por_turno --liberar" >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# Aviso do Na Lupa (CS-137): quem segue um parlamentar que entrou num caso
+# publicado (na publicação ou incluído depois) recebe um e-mail, uma vez por
+# caso e parlamentar (na_lupa_notice). Olha só o que entrou nos últimos 7 dias:
+# caso antigo se avisa à mão com --desde. Só envia com a flag `email_na_lupa`
+# em admins/all; os planos que recebem saem da tela de Planos. Minuto 7, 22,
+# 37 e 52, fora do minuto do resultado da eleição.
+7-59/15 * * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh na-lupa-aviso -- /usr/local/bin/python -m mamute_scrappers.scripts.notificacao.na_lupa >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # Foto de quem cada pessoa selecionou no 2º turno (CS-129): 17:05 de Brasília
 # do domingo da votação. Roda uma vez; o 1º turno foi registrado em 05/10.
 5 20 25 10 * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh selecao-turno-2 -- /usr/local/bin/python -m mamute_scrappers.scripts.selecao_por_turno --turno 2 >> /proc/1/fd/1 2>> /proc/1/fd/2

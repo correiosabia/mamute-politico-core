@@ -197,3 +197,9 @@ through `parliamentarian_id`, `candidacy_id` and the CPF, so a candidate who
 takes office later, or a person who moves to another house or level, points to
 the right profile without rewriting the collection. Only published collections
 are readable without login.
+
+When a parliamentarian appears in a published collection (on publication or
+when added later), whoever follows them gets one email about it (CS-137,
+`scripts/notificacao/na_lupa.py`): once per reader, collection and
+parliamentarian (`na_lupa_notice`), with the member's tier label and
+explanation, behind the `email_na_lupa` flag.

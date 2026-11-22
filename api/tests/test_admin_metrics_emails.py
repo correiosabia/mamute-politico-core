@@ -180,6 +180,9 @@ def test_metrics_emails_aberturas_por_envio() -> None:
         # aviso de eleição: 2 enviados em dias diferentes, 1 aberto
         ("eleicao_2026_t2_completo", "sent", "e1", "2026-10-26 01:00:00"),
         ("eleicao_2026_t2_completo", "sent", "e2", "2026-10-27 09:00:00"),
+        # aviso do Na Lupa (CS-137): sai aos poucos, conta à parte do relatório
+        ("na_lupa_banco-master", "sent", "n1", "2026-11-10 10:07:00"),
+        ("na_lupa_banco-master", "sent", "n2", "2026-11-12 15:22:00"),
     ]
     for periodicidade, status, mid, criado in linhas:
         conn.exec_driver_sql(
@@ -187,7 +190,7 @@ def test_metrics_emails_aberturas_por_envio() -> None:
             "message_id, created_at) values (1, 'ana@x.com', ?, ?, ?, ?)",
             (periodicidade, status, mid, criado),
         )
-    for mid in ("q1", "q3", "q5", "r1", "r2", "e2"):
+    for mid in ("q1", "q3", "q5", "r1", "r2", "e2", "n1"):
         conn.exec_driver_sql(
             "insert into email_aberturas (message_id, primeira_abertura_em, ultima_abertura_em) "
             "values (?, '2026-11-01', '2026-11-01')",
@@ -204,6 +207,10 @@ def test_metrics_emails_aberturas_por_envio() -> None:
     ele = ab["eleicao"]
     assert (ele["enviados"], ele["abertos"], ele["media_pct"]) == (2, 1, 50.0)
     assert ele["ultimo"]["periodicidade_label"] == "Resultado 2026, 2º turno (completo)"
+    lupa = ab["na_lupa"]
+    assert (lupa["enviados"], lupa["abertos"], lupa["media_pct"]) == (2, 1, 50.0)
+    assert len(lupa["envios"]) == 1  # um envio por caso, mesmo em dias diferentes
+    assert lupa["ultimo"]["periodicidade_label"] == "Na Lupa: banco-master"
 
 
 def test_metrics_emails_aberturas_sem_migration(session: Session) -> None:

@@ -165,6 +165,24 @@ Cada e-mail leva o `projetos.email_token` do leitor em dois lugares:
 
 O leitor também liga e desliga em Minha conta (`/api/projects/me/email-preferences`). Antes da migration `cs150a1b2c3d4` rodar, ninguém é filtrado e o e-mail sai sem o link, como antes.
 
+### Aviso do Na Lupa (CS-137)
+
+Quem segue um parlamentar recebe um e-mail quando ele aparece num caso **publicado** do Na Lupa: na publicação do caso ou quando é incluído num caso já publicado. É um disparo próprio, fora do relatório periódico, para chegar perto da notícia.
+
+```bash
+python -m mamute_scrappers.scripts.notificacao.na_lupa --dry-run          # HTML em output/, sem enviar
+python -m mamute_scrappers.scripts.notificacao.na_lupa                    # o que o cron roda (a cada 15 min)
+python -m mamute_scrappers.scripts.notificacao.na_lupa --caso banco-master --desde 2026-10-01  # caso antigo, à mão
+```
+
+- **Quem entra:** pessoa do caso ligada a um parlamentar da base (pelo vínculo, pelo CPF ou pela candidatura, como na página) e seguida em `projetos_parliamentarian`. Vale o que entrou nos últimos 7 dias (o mais recente entre a publicação do caso e a inclusão da pessoa). Por isso ligar a flag **não** dispara os casos antigos: para avisar sobre eles, rodar com `--desde`.
+- **Uma vez só:** `na_lupa_notice` tem unique (projeto, caso, parlamentar). Republicar, editar o texto ou mudar o nível não reenvia. Quem segue várias pessoas do mesmo caso recebe **um** e-mail com todas.
+- **Nível:** cada pessoa vai com o nível de citação do caso (`tier_labels`) e a explicação dele (`settings.tier_descriptions`, ou o texto padrão da página). Sem nível, sai "Autoridade citada". O e-mail termina dizendo que estar no caso, por si só, não quer dizer ser investigado. O texto nunca diz "envolvido" nem "investigado" por conta própria: quem fala é o nível que o editor deu.
+- **Quem recebe:** flag `email_na_lupa` (nasce `off`). `admins` = só e-mails de `MAMUTE_ADMIN_EMAILS`; `all` = admins + planos com a flag `liberado` na tela de Planos. É ali que se escolhe quais planos recebem, sem deploy.
+- **Descadastro (CS-150)** vale aqui: quem pediu para parar fica `skipped_opt_out`. O e-mail sai com o link no rodapé e o List-Unsubscribe.
+- **Registro:** `email_send_log` com `periodicidade = na_lupa_<slug>`. Sai com as tags `mamute` + `mamute-na-lupa`, e a aba E-mails mostra a abertura do aviso separada da do relatório.
+- **Falha de SMTP** deixa as linhas `error` e tenta de novo nas próximas rodadas, até 3 vezes.
+
 ### Abertura dos e-mails (CS-148)
 
 O relatório e o aviso de resultado da eleição saem com rastreio de abertura do Mailgun **ligado só na mensagem** (`X-Mailgun-Track-Opens: yes`, clique desligado) e com as tags `mamute` + `mamute-relatorio` ou `mamute-resultado-eleicao`. O rastreio do domínio continua desligado: ligá-lo valeria também para o magic link do Ghost. A newsletter do Ghost tem tags próprias (`bulk-email`/`ghost-email`), então os números não se misturam.
