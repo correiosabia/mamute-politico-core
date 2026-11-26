@@ -203,3 +203,8 @@ when added later), whoever follows them gets one email about it (CS-137,
 `scripts/notificacao/na_lupa.py`): once per reader, collection and
 parliamentarian (`na_lupa_notice`), with the member's tier label and
 explanation, behind the `email_na_lupa` flag.
+
+A **Collection Badge** marks the profile of a parliamentarian cited in a
+published collection (CS-136): `settings.badge` sets which tiers get it
+(default 1 and 2), an icon key or an https image, and an on/off switch. The
+badge links to the collection page and never shows the tier by itself.

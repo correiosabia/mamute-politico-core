@@ -287,6 +287,95 @@ def get_collection(
 
 
 # --------------------------------------------------------------------------
+# selo no perfil do parlamentar (CS-136)
+# --------------------------------------------------------------------------
+
+# Sem configuração, o selo vale para os tiers 1 e 2: o tier mais fraco de uma
+# coleção não deve marcar o perfil de ninguém sem decisão explícita do admin.
+BADGE_TIERS_PADRAO = (1, 2)
+
+
+def badge_config(settings: Any) -> dict[str, Any]:
+    """Selo da coleção (`settings.badge`), com o padrão para o que não veio.
+
+    `{"enabled": bool, "tiers": [int], "icon": str, "icon_url": "https://..."}`.
+    `icon` é uma chave do catálogo de ícones da tela; `icon_url`, quando existe,
+    tem precedência (arte própria da coleção, sem deploy).
+    """
+
+    bruto = settings.get("badge") if isinstance(settings, dict) else None
+    bruto = bruto if isinstance(bruto, dict) else {}
+    tiers_brutos = bruto.get("tiers")
+    if isinstance(tiers_brutos, list):
+        tiers = sorted(
+            {t for t in tiers_brutos if isinstance(t, int) and not isinstance(t, bool) and 1 <= t <= 5}
+        )
+    else:
+        tiers = list(BADGE_TIERS_PADRAO)
+    icon_url = _texto(bruto.get("icon_url"))
+    return {
+        "enabled": bruto.get("enabled", True) is not False,
+        "tiers": tiers,
+        "icon": _texto(bruto.get("icon")),
+        "icon_url": icon_url if icon_url and icon_url.startswith("https://") else None,
+    }
+
+
+def _validar_badge(settings: Any) -> None:
+    bruto = settings.get("badge") if isinstance(settings, dict) else None
+    if isinstance(bruto, dict) and bruto.get("icon_url"):
+        _url_foto(bruto.get("icon_url"), "Selo")
+
+
+def badges_for_parliamentarian(db: Session, parliamentarian_id: int) -> list[dict[str, Any]]:
+    """Coleções publicadas em que o parlamentar aparece num tier que leva selo.
+
+    Usa a mesma resolução de vínculo da página (id, CPF ou candidatura), então
+    quem entrou na coleção como candidato ganha o selo ao assumir o mandato.
+    Não devolve o tier: o selo leva à página da coleção, onde ele é explicado.
+    """
+
+    if not tabelas_disponiveis(db, *TABELAS):
+        return []
+    colecoes = (
+        db.execute(
+            select(Collection)
+            .where(Collection.status == STATUS_PUBLISHED)
+            .order_by(Collection.published_at.desc().nullslast(), Collection.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    configs = {int(c.id): badge_config(c.settings) for c in colecoes}
+    ativas = {cid: cfg for cid, cfg in configs.items() if cfg["enabled"] and cfg["tiers"]}
+    if not ativas:
+        return []
+
+    membros = [
+        m
+        for m in db.execute(
+            select(CollectionMember).where(CollectionMember.collection_id.in_(ativas))
+        ).scalars()
+        if m.tier is not None and int(m.tier) in ativas[int(m.collection_id)]["tiers"]
+    ]
+    com_selo = {
+        int(m.collection_id)
+        for m, (parl, _) in zip(membros, resolver_vinculos(db, membros))
+        if parl is not None and int(parl.id) == int(parliamentarian_id)
+    }
+    return [
+        {
+            "slug": c.slug,
+            "title": c.title,
+            "icon": configs[int(c.id)]["icon"],
+            "icon_url": configs[int(c.id)]["icon_url"],
+        }
+        for c in colecoes
+        if int(c.id) in com_selo
+    ]
+
+
+# --------------------------------------------------------------------------
 # resolução dos vínculos
 # --------------------------------------------------------------------------
 
@@ -642,6 +731,7 @@ def _aplicar_meta(c: Collection, dados: dict[str, Any], validado: dict[str, Any]
     if "tier_labels" in dados:
         c.tier_labels = _tier_labels(dados["tier_labels"])
     if "settings" in dados:
+        _validar_badge(dados["settings"])
         c.settings = dados["settings"] if isinstance(dados["settings"], dict) else {}
     if validado["status"] == STATUS_PUBLISHED and c.published_at is None:
         c.published_at = datetime.now(timezone.utc)

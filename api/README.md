@@ -279,6 +279,7 @@ conteúdo intercalados. Regras em `services/collection.py`.
 |---|---|---|
 | `GET /api/collections` | qualquer um, sem login | coleções publicadas |
 | `GET /api/collections/{slug}` | qualquer um, sem login | coleção publicada completa (404 se rascunho) |
+| `GET /api/collections/by-parliamentarian/{id}` | qualquer um, sem login | selos do perfil: coleções publicadas que citam o parlamentar (CS-136) |
 | `GET /api/admin/collections[/{id}]` | admin | todas, rascunhos incluídos |
 | `POST /api/admin/collections`, `PUT /api/admin/collections/{id}` | admin | cria e edita título, slug, situação, rótulos dos níveis |
 | `PUT /api/admin/collections/{id}/members` | admin | grava a lista completa de pessoas (o que não veio, sai) |
@@ -298,6 +299,14 @@ são resolvidos a cada leitura:
 | Bloco com `ref: null` = registro de origem sumiu da base | o bloco continua com o texto do admin |
 
 Toda escrita entra no `admin_audit_log`.
+
+**Selo no perfil (CS-136).** `settings.badge` de cada coleção diz se ela marca o
+perfil dos parlamentares que cita: `{"enabled", "tiers", "icon", "icon_url"}`.
+Sem configuração vale `enabled: true` e `tiers: [1, 2]`. O vínculo é resolvido
+como na página (id, CPF ou candidatura) e a resposta não traz o tier: o selo
+leva à página da coleção, onde o nível é explicado. `icon` é uma chave do
+catálogo de ícones da interface; `icon_url` (só https, validado ao salvar) tem
+precedência e permite arte própria sem deploy.
 
 ## Discursos e temas por janela (CS-124)
 

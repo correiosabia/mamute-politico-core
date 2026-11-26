@@ -104,6 +104,12 @@ def list_published(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     return svc.list_collections(db)
 
 
+@router.get("/by-parliamentarian/{parliamentarian_id}")
+def list_badges(parliamentarian_id: int, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    """Selos do perfil (CS-136): coleções publicadas que citam o parlamentar."""
+    return svc.badges_for_parliamentarian(db, parliamentarian_id)
+
+
 @router.get("/{slug}")
 def read_published(slug: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     colecao = svc.get_collection(db, slug=slug)

@@ -472,3 +472,88 @@ def test_last_curated_at_e_a_maior_data_entre_colecao_membros_e_blocos(client, s
     final = client.get(base).json()
     assert final["updated_at"] > "2020-01-01"
     assert final["last_curated_at"] == final["updated_at"]
+
+
+# --------------------------------------------------------------------------
+# selo no perfil do parlamentar (CS-136)
+# --------------------------------------------------------------------------
+
+
+def _colecao_com_pessoas(client: TestClient, slug: str, membros: list[dict], **extra) -> int:
+    criada = _cria(client, slug=slug, title=f"Coleção {slug}", **extra)
+    resp = client.put(f"/api/admin/collections/{criada['id']}/members", json={"members": membros})
+    assert resp.status_code == 200, resp.text
+    return criada["id"]
+
+
+def _publica(client: TestClient, cid: int) -> None:
+    resp = client.put(f"/api/admin/collections/{cid}", json={"status": "published"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_selo_so_de_colecao_publicada_e_nos_tiers_padrao(client, public_client, session):
+    _base(session)
+    # Ana entra pelo CPF no tier 2; o senador Beto, pelo id, no tier 3.
+    cid = _colecao_com_pessoas(
+        client,
+        "caso-a",
+        [
+            {"display_name": "Ana", "cpf": "11111111111", "tier": 2},
+            {"display_name": "Beto", "parliamentarian_id": 20, "tier": 3},
+        ],
+    )
+
+    # Rascunho não gera selo.
+    assert public_client.get("/api/collections/by-parliamentarian/10").json() == []
+
+    _publica(client, cid)
+    selos = public_client.get("/api/collections/by-parliamentarian/10").json()
+    assert selos == [{"slug": "caso-a", "title": "Coleção caso-a", "icon": None, "icon_url": None}]
+    # Tier 3 fica fora do padrão (1 e 2).
+    assert public_client.get("/api/collections/by-parliamentarian/20").json() == []
+
+
+def test_selo_respeita_configuracao_da_colecao(client, public_client, session):
+    _base(session)
+    cid = _colecao_com_pessoas(
+        client,
+        "caso-b",
+        [{"display_name": "Beto", "parliamentarian_id": 20, "tier": 3}],
+        settings={"badge": {"tiers": [1, 2, 3], "icon": "landmark", "icon_url": "https://exemplo/icone.svg"}},
+    )
+    _publica(client, cid)
+    selos = public_client.get("/api/collections/by-parliamentarian/20").json()
+    assert selos == [
+        {"slug": "caso-b", "title": "Coleção caso-b", "icon": "landmark", "icon_url": "https://exemplo/icone.svg"}
+    ]
+
+    # Desligar o selo tira a coleção do perfil sem despublicar.
+    resp = client.put(
+        f"/api/admin/collections/{cid}", json={"settings": {"badge": {"enabled": False, "tiers": [1, 2, 3]}}}
+    )
+    assert resp.status_code == 200
+    assert public_client.get("/api/collections/by-parliamentarian/20").json() == []
+
+
+def test_selo_com_icone_sem_https_vira_erro_legivel(client):
+    resp = client.post(
+        "/api/admin/collections",
+        json={"slug": "caso-c", "title": "C", "settings": {"badge": {"icon_url": "http://exemplo/i.png"}}},
+    )
+    assert resp.status_code == 422
+    assert "https://" in resp.json()["detail"]
+
+
+def test_selo_pessoa_sem_tier_ou_de_outro_parlamentar_nao_aparece(client, public_client, session):
+    _base(session)
+    cid = _colecao_com_pessoas(
+        client,
+        "caso-d",
+        [
+            {"display_name": "Ana", "cpf": "11111111111"},
+            {"display_name": "Beto", "parliamentarian_id": 20, "tier": 1},
+        ],
+    )
+    _publica(client, cid)
+    assert public_client.get("/api/collections/by-parliamentarian/10").json() == []
+    assert public_client.get("/api/collections/by-parliamentarian/999").json() == []
