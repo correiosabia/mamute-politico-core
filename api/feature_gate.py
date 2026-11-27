@@ -100,9 +100,24 @@ def feature_access(key: str):
     return dependency
 
 
+def flag_liberada(key: str, request: Request, authorization: str | None, db: Session) -> bool:
+    """Diz se a chave está liberada para quem chamou, sem levantar 403.
+
+    Para detalhe opcional dentro de uma rota já gatada (o placar das missões,
+    CS-179): sem acesso, a rota responde igual, só sem o detalhe. Cadeado conta
+    como não liberado, porque não há prévia de um número só.
+    """
+    if resolve_ghost_admin(request, authorization) is not None:
+        return resolve_for(db, is_admin=True).get(key) == ACCESS_LIBERADA
+    email = getattr(request.state, "token_email", None)
+    modos = enabled_flags_for_tier(db, tier_id_for_email(db, email))
+    return resolve_for(db, is_admin=False, modos=modos).get(key) == ACCESS_LIBERADA
+
+
 emendas_access = feature_access("emendas")
 trajetoria_access = feature_access("trajetoria")
 cota_access = feature_access("cota_parlamentar")
+missoes_access = feature_access("missoes_do_dia")
 
 __all__ = [
     "PREVIEW_ROWS",
@@ -111,4 +126,6 @@ __all__ = [
     "emendas_access",
     "trajetoria_access",
     "cota_access",
+    "missoes_access",
+    "flag_liberada",
 ]

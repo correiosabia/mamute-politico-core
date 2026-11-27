@@ -233,6 +233,12 @@ PYTHONPATH=/app
 # termo novo aparece na coleta seguinte. Semanal, domingo 08h15 UTC (~2 min).
 15 8 * * 0 cd /app && /app/mamute_scrappers/docker/run-cron-job.sh agenda-eagendas -- /usr/local/bin/python -m mamute_scrappers.agenda_crawler.eagendas >> /proc/1/fd/1 2>> /proc/1/fd/2
 
+# Missões do dia (CS-179): consultas do Brasil Participativo, consulta pública e
+# Ideia Legislativa do Senado e enquetes da Câmara, para a FILA DE CURADORIA
+# (nada vai ao ar sem um admin aprovar). 2x por dia, 09h33 e 21h33 UTC (06h33 e
+# 18h33 de Brasília, antes de o leitor abrir de manhã). ~45 requisições, 1/s.
+33 9,21 * * * cd /app && /app/mamute_scrappers/docker/run-cron-job.sh participacao -- /usr/local/bin/python -m mamute_scrappers.participacao_crawler.coletar >> /proc/1/fd/1 2>> /proc/1/fd/2
+
 # Backfill 2022 -> ano corrente (a cada 1h no minuto 20 — livre entre os jobs
 # horarios, que ocupam 10, 25, 35, 40 e 55). Sao 10 chunks ano x casa; com 2
 # por execucao a fila fecha em ~5 horas e depois vira no-op.

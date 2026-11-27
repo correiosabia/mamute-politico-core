@@ -1,0 +1,120 @@
+{
+ "data": {
+  "participatoryProcesses": [
+   {
+    "id": "45",
+    "slug": "politicadedados",
+    "title": {
+     "translation": "Consulta Pública - Política de Governança de Dados, Interoperabilidade, Registro de Referência e Compartilhamento de Dados da Administração Pública Federal"
+    },
+    "subtitle": {
+     "translation": null
+    },
+    "shortDescription": {
+     "translation": null
+    },
+    "startDate": "2025-07-23",
+    "endDate": "2026-11-30",
+    "publishedAt": "2025-07-23T07:00:28-03:00",
+    "participatoryScope": {
+     "translation": null
+    }
+   },
+   {
+    "id": "72",
+    "slug": "consultas-publicas-conitec",
+    "title": {
+     "translation": "Consultas Públicas Conitec/SCTIE"
+    },
+    "subtitle": {
+     "translation": null
+    },
+    "shortDescription": {
+     "translation": null
+    },
+    "startDate": "2025-10-22",
+    "endDate": "2026-11-26",
+    "publishedAt": "2025-10-21T15:06:03-03:00",
+    "participatoryScope": {
+     "translation": null
+    }
+   },
+   {
+    "id": "85",
+    "slug": "selecao-osc",
+    "title": {
+     "translation": "Seleção de Organização da Sociedade Civil"
+    },
+    "subtitle": {
+     "translation": null
+    },
+    "shortDescription": {
+     "translation": null
+    },
+    "startDate": "2025-11-25",
+    "endDate": "2026-12-30",
+    "publishedAt": "2025-11-24T13:36:19-03:00",
+    "participatoryScope": {
+     "translation": null
+    }
+   },
+   {
+    "id": "139",
+    "slug": "aneel",
+    "title": {
+     "translation": "CONSULTAS PÚBLICAS ANEEL"
+    },
+    "subtitle": {
+     "translation": null
+    },
+    "shortDescription": {
+     "translation": null
+    },
+    "startDate": "2025-11-12",
+    "endDate": "2035-11-26",
+    "publishedAt": "2025-11-14T15:59:47-03:00",
+    "participatoryScope": {
+     "translation": null
+    }
+   },
+   {
+    "id": "168",
+    "slug": "IBGE-Prioridade-de-divulgacao-nos-temas-das-pesquisas-e-resultados-2026",
+    "title": {
+     "translation": "IBGE - Prioridade de divulgação nos temas das pesquisas e resultados - 2026"
+    },
+    "subtitle": {
+     "translation": null
+    },
+    "shortDescription": {
+     "translation": null
+    },
+    "startDate": "2026-11-04",
+    "endDate": "2026-12-04",
+    "publishedAt": "2026-11-03T11:48:47-03:00",
+    "participatoryScope": {
+     "translation": null
+    }
+   },
+   {
+    "id": "1",
+    "slug": "programas",
+    "title": {
+     "translation": "PPA Participativo"
+    },
+    "subtitle": {
+     "translation": "Escolha seus programas prioritários e Envie propostas"
+    },
+    "shortDescription": {
+     "translation": "<p>Neste processo as pessoas vão poder votar em até 3 programas prioritários que levarão ações estruturantes para os seus territórios. Além de poderem enviar uma proposta de implementação de política pública para sua região ou município.</p>"
+    },
+    "startDate": "2023-05-11",
+    "endDate": "2023-07-16",
+    "publishedAt": "2026-10-29T08:44:37-03:00",
+    "participatoryScope": {
+     "translation": null
+    }
+   }
+  ]
+ }
+}

@@ -12,6 +12,7 @@ from .collection import Collection, CollectionBlock, CollectionMember
 from .collection_event import CollectionEvent
 from .page_event import PageEvent
 from .official_agenda import OfficialAgendaItem
+from .participation_item import ParticipationItem
 from .committee_attendance import CommitteeAttendance
 from .election_result import CandidacyResult, ElectionResultNotice
 from .electoral_history import ElectoralHistory
@@ -76,6 +77,7 @@ __all__ = [
     "ParliamentarianSocialNetwork",
     "ParliamentaryAmendment",
     "ParliamentaryExpense",
+    "ParticipationItem",
     "PlenaryAttendance",
     "ProjectMamutometro",
     "ProjectTag",
