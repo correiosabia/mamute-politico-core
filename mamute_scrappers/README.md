@@ -340,6 +340,29 @@ Cuidados:
   (o do 1º turno saiu 18 dias depois), dá para trocar a fonte do `2026-2t` para o pacote, como o
   `2026-1t`.
 
+### Missões do dia: consultas, ideias e enquetes abertas (CS-179)
+
+`python -m mamute_scrappers.participacao_crawler.coletar [--fonte brasil_participativo|senado|camara] [--dry-run]`
+
+Grava em `participation_item`. A coleta só enche a **fila de curadoria**: item
+novo nasce `pendente` e nada aparece para o leitor sem um admin aprovar
+(`/admin/participacao` na API). Regravar nunca mexe em status, tema e nota.
+
+| Fonte | Acesso | Recorte | Prazo |
+| --- | --- | --- | --- |
+| Brasil Participativo | GraphQL público (`/api`) | fim nos próximos 120 dias; fora eleições, seleções e editais | `endDate` |
+| Consulta Pública do Senado | HTML de `pesquisamateria?situacao=aberta` | as 30 mais votadas | sem prazo (aberta enquanto tramita) |
+| Ideia Legislativa do Senado | HTML de `pesquisaideia?situacao=5` | 1.000 apoios ou mais | "Apoios abertos até ..." |
+| Enquetes da Câmara | HTML de `/enquetes` + `/enquetes/{id}/resultados` | mais comentadas e mais votadas da última semana | sem prazo |
+
+- As requisições usam `curl_cffi` com impressão de navegador: o Brasil
+  Participativo derruba o TLS do Python puro (o mesmo bloqueio do TSE, CS-126).
+- Fonte que volta vazia não fecha nada (HTML mudou = zero item; só vai o aviso
+  no log). Fechar por ausência só no Brasil Participativo, cuja resposta é a
+  lista completa. Consulta e enquete aprovadas que saem da lista do dia
+  continuam com o placar atualizado pela página de cada uma.
+- Cron: 09h33 e 21h33 UTC. Uma requisição por segundo, ~45 por rodada.
+
 ### Reprocessar análise de texto de pronunciamentos
 
 ```bash

@@ -270,6 +270,25 @@ as 19h nas seções ainda abertas. Os dados saem dos arquivos de urna do TSE (ve
 
 Eleições: `2026-2t` (principal), `2026-1t` e `2022-2t`. Tabela vazia ou ausente = `{disponivel: false}`.
 
+## Missões do dia (CS-179)
+
+Consultas públicas, ideias legislativas, enquetes e abaixo-assinados abertos,
+num lugar só, com curadoria humana. Tabela `participation_item`, coleta em
+`mamute_scrappers/participacao_crawler`.
+
+- `GET /api/participacao?aba=hoje|passou&tema=`: membro logado, gate de plano
+  `missoes_do_dia` (cadeado = prévia de 3 itens de Hoje, sem filtro). **Hoje** =
+  aprovado, aberto na fonte e com prazo a partir de hoje ou sem prazo
+  (`sem_prazo: true`: consulta do Senado e enquete da Câmara ficam abertas
+  enquanto a proposição tramita). **Já passou** = aprovado que encerrou.
+- O placar (`score`) só vai quando a flag `missoes_placar` está liberada para
+  quem chama: é participação espontânea, sem rigor estatístico, e a tela mostra
+  o aviso junto.
+- `/api/admin/participacao` (gate de admin, 404): `GET ?status=pendente|aprovado|descartado&fonte=&busca=`,
+  `PATCH /{id}` (status, tema, nota; título, link e prazo só em item manual),
+  `POST /lote` (`{ids, status}`) e `POST` (cadastro manual, nasce aprovado).
+  Tudo passa pelo log de auditoria do admin.
+
 ## Coleções curadas (CS-132)
 
 Página editada pelo admin que reúne pessoas em torno de um tema, com blocos de

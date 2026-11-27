@@ -208,3 +208,16 @@ A **Collection Badge** marks the profile of a parliamentarian cited in a
 published collection (CS-136): `settings.badge` sets which tiers get it
 (default 1 and 2), an icon key or an https image, and an on/off switch. The
 badge links to the collection page and never shows the tier by itself.
+
+### Participation Item
+
+An open chance for a citizen to take part in a public decision (a public
+consultation, a legislative idea, a Chamber poll or a petition), stored in
+`participation_item`. Collected items enter a **curation queue** as `pendente`
+and reach readers only after an admin approves them; the admin also sets the
+theme. Items with no collector (Change.org, Avaaz) are added by hand and born
+approved. `closes_on` `NULL` means the source sets no deadline (the Senate's
+consultation and the Chamber's poll stay open while the bill is pending), which
+the screen states instead of inventing a date. The score is what the source
+publishes, spontaneous and without statistical rigor, and is shown only behind
+its own flag and with that warning.

@@ -29,6 +29,7 @@ try:
         expenses,
         ghost_webhooks,
         home_publica,
+        participacao,
         projects,
         parliamentarians,
         propositions,
@@ -59,6 +60,7 @@ except ImportError:
         expenses,
         ghost_webhooks,
         home_publica,
+        participacao,
         projects,
         parliamentarians,
         propositions,
@@ -153,6 +155,8 @@ def create_app() -> FastAPI:
     api_router.include_router(home_publica.public_router)
     api_router.include_router(events.router)
     api_router.include_router(email_settings.admin_router)
+    # CS-179: curadoria das missões do dia (gate de admin dentro das rotas).
+    api_router.include_router(participacao.admin_router)
     # Imagens do e-mail: o cliente de e-mail busca sem login.
     api_router.include_router(email_settings.public_router)
     # Link curto do relatório por e-mail: quem recebe o compartilhamento não tem login.
@@ -162,6 +166,8 @@ def create_app() -> FastAPI:
 
     api_router.include_router(analysis.router, dependencies=auth_dependencies)
     api_router.include_router(settings.router, dependencies=auth_dependencies)
+    # CS-179: missões do dia (membro logado + gate de plano missoes_do_dia).
+    api_router.include_router(participacao.router, dependencies=auth_dependencies)
     api_router.include_router(parliamentarians.router, dependencies=auth_dependencies)
     api_router.include_router(propositions.router, dependencies=auth_dependencies)
     # Antes de projects.router: /projects/me/... não pode cair num /projects/{id}.
